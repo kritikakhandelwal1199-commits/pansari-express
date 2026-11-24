@@ -1,0 +1,102 @@
+@import "tailwindcss" source(none);
+@source "../../apps/web/app";
+@source "../../apps/web/components";
+@source "./";
+
+/* Pansari Express design tokens.
+   Brand: kumkum maroon + haldi yellow on warm paper; leaf green = in stock / paid.
+   Light and dark follow the system setting. */
+:root {
+  --bg: #fbf6ee;
+  --surface: #ffffff;
+  --surface-2: #f6eee2;
+  --ink: #23140b;
+  --muted: #7a6352;
+  --line: #eadbc6;
+  --kum: #a3122b;
+  --kum-ink: #ffffff;
+  --haldi: #f2b705;
+  --leaf: #2f7a35;
+  --danger: #b3261e;
+  --warn: #9a6400;
+  --ring: #f2b705;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #140c07;
+    --surface: #1f140d;
+    --surface-2: #2a1b11;
+    --ink: #f6e9d8;
+    --muted: #bba08a;
+    --line: #3b2819;
+    --kum: #d33a52;
+    --leaf: #63b35b;
+    --danger: #ff8a80;
+    --warn: #ffcc66;
+  }
+}
+
+@theme inline {
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-brand: 'Yatra One', serif;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-kum: var(--kum);
+  --color-kum-ink: var(--kum-ink);
+  --color-haldi: var(--haldi);
+  --color-leaf: var(--leaf);
+  --color-danger: var(--danger);
+  --color-warn: var(--warn);
+  --color-ring: var(--ring);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-feature-settings: 'tnum' 1;
+}
+.num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.glass {
+  background: color-mix(in oklab, var(--surface) 78%, transparent);
+  backdrop-filter: saturate(1.4) blur(14px);
+  -webkit-backdrop-filter: saturate(1.4) blur(14px);
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, color-mix(in oklab, var(--surface-2) 60%, var(--surface)) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite linear;
+  border-radius: 10px;
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+}

@@ -1,0 +1,51 @@
+# Manual deploy of the parts that run on Firebase's FREE (Spark) plan:
+# Firestore security rules + indexes and Firebase Hosting.
+# Cloud Functions (billing, stock, invoices) need the Blaze plan - use deploy.cmd for that.
+#
+# One-time setup in GitHub -> Settings -> Secrets and variables -> Actions:
+#   secret   FIREBASE_SERVICE_ACCOUNT  JSON key of a service account with "Firebase Admin" role
+#   variable FIREBASE_PROJECT_ID       e.g. pansari-express-1234
+name: Deploy to Firebase (free plan parts)
+
+on:
+  workflow_dispatch:
+    inputs:
+      data_mode:
+        description: Web app data mode (demo works without Cloud Functions)
+        type: choice
+        options: [demo, firebase]
+        default: demo
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w @pansari/shared && npm run build -w @pansari/adapters
+      - name: Build web app
+        run: npm run build -w @pansari/web
+        env:
+          NEXT_PUBLIC_DATA_MODE: ${{ inputs.data_mode }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_PROJECT_ID }}.firebaseapp.com
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
+          NEXT_PUBLIC_EDGE_URL: ${{ vars.EDGE_URL }}
+          NEXT_PUBLIC_USE_EMULATORS: 'false'
+          NEXT_TELEMETRY_DISABLED: 1
+      - name: Write service account key
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$RUNNER_TEMP/sa.json"
+      - name: Deploy rules, indexes and hosting
+        run: npx firebase deploy --only firestore:rules,firestore:indexes,hosting --project "$PROJECT_ID" --non-interactive
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json

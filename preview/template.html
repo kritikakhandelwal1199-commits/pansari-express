@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pansari Phase 1 preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Mukta:wght@400;500;600;700;800&family=Yatra+One&display=swap" rel="stylesheet">
+<style>
+/* VOICE: a working back-office bench — practical, exact, warm
+   IDEA: the shop's bill book and counter poster, running the real Phase 1 code
+   PICTURE: each tab is a live tool — bill, QR poster + checks, access list, zone map
+   COLOUR/TYPE: kumkum #a3122b, haldi #f2b705, leaf green for passes; Yatra One brand, Mukta text
+   LAYOUT: maroon bar + tabs; tool on the left, its result card on the right; stacks under 900px */
+:root{color-scheme:light dark;--bg:light-dark(#fff8ec,#170d08);--card:light-dark(#fff,#24150d);--ink:light-dark(#2a160c,#f7ead9);--mut:light-dark(#76604f,#bba08a);--line:light-dark(#efdcc2,#3c281b);--soft:light-dark(#fdf0d8,#2c1b10);--kum:#a3122b;--kumd:#6e0b1d;--hal:#f2b705;--leaf:light-dark(#2f7a35,#62b05a);--bad:light-dark(#b3261e,#ff8a80);--paper:#fffdf7;--paperink:#24160c}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Mukta,system-ui,sans-serif;overflow-x:clip}
+button,input,select{font:inherit;color:inherit}
+.top{background:var(--kumd);color:#fff6e6;padding:10px max(3vw,14px);display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;box-shadow:0 6px 0 var(--hal)}
+.brand{font:26px/1 'Yatra One',serif;color:var(--hal);white-space:nowrap}
+.brand small{display:block;font:500 13px/1.4 Mukta,sans-serif;color:#f3d9b8;margin-top:3px}
+nav{display:flex;gap:4px;overflow-x:auto;flex:1}
+nav a{color:#f6dcc0;text-decoration:none;padding:8px 14px;border-radius:999px;white-space:nowrap;font-weight:600;min-height:44px;display:flex;align-items:center;flex:none}
+nav a.on{background:var(--hal);color:#3a1d05}
+main{max-width:1240px;margin:0 auto;padding:clamp(20px,3vw,34px) max(3vw,14px) 40px}
+h1{font-size:clamp(28px,3.4vw,40px);line-height:1.06;margin:0 0 4px;text-wrap:balance}
+h2{font-size:20px;margin:0 0 8px;line-height:1.2}
+.sub{color:var(--mut);margin:0 0 18px;max-width:72ch}
+.u{color:var(--mut);font-size:14px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+.stack{display:grid;gap:14px}
+.btn{border:0;border-radius:12px;padding:8px 16px;min-height:44px;font-weight:700;cursor:pointer;background:var(--kum);color:#fff}
+.btn.alt{background:var(--soft);color:var(--ink);border:1px solid var(--line)}
+.btn.hal{background:var(--hal);color:#3a1d05}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+:focus-visible{outline:3px solid var(--hal);outline-offset:2px}
+input,select{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 12px;min-height:44px;font-size:16px;width:100%}
+label{display:grid;gap:4px;font-size:14px;color:var(--mut);font-weight:600}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--card);border-radius:99px;padding:6px 14px;cursor:pointer;min-height:40px;font-weight:600}
+.chip.on{background:var(--kum);border-color:var(--kum);color:#fff}
+.item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.item b{font-weight:600}
+.qty{display:flex;align-items:center;border:1.5px solid var(--leaf);border-radius:10px;overflow:hidden}
+.qty button{background:none;border:0;width:36px;min-height:36px;font-weight:800;font-size:18px;cursor:pointer;color:var(--leaf)}
+.qty span{min-width:22px;text-align:center;font-weight:700}
+.tag{display:inline-block;padding:1px 9px;border-radius:99px;font-size:13px;font-weight:700;white-space:nowrap;background:var(--soft);border:1px solid var(--line)}
+.ok{color:var(--leaf);font-weight:700}.no{color:var(--bad);font-weight:700}
+/* bill paper */
+.paper{background:var(--paper);color:var(--paperink);border-radius:6px;padding:18px 18px 22px;box-shadow:0 18px 40px -22px #3a0a0a90;font-size:14px;position:relative}
+.paper::after{content:"";position:absolute;left:0;right:0;bottom:-8px;height:8px;background:radial-gradient(circle at 6px -2px,transparent 6px,var(--paper) 6.5px) repeat-x;background-size:12px 8px}
+.paper h3{text-align:center;margin:0;font:22px/1.1 'Yatra One',serif;color:var(--kum)}
+.paper .c{text-align:center}
+.paper .m{color:#6b5444;font-size:13px}
+.paper hr{border:0;border-top:1.5px dashed #b9a48f;margin:10px 0}
+.kv{display:flex;justify-content:space-between;gap:10px}
+.kv span:last-child,.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.big{font-size:22px;font-weight:800}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:4px 3px;text-align:left;border-bottom:1px solid #e8dccb}
+th.n,td.n{text-align:right}
+.qrwrap{display:grid;place-items:center;margin-top:10px}
+.qrwrap svg{max-width:100%;height:auto}
+pre{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:12px;overflow:auto;max-height:320px;font-size:12.5px}
+code{overflow-wrap:anywhere}
+/* QR flow */
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.steps li{display:grid;grid-template-columns:34px minmax(0,1fr);gap:10px;align-items:start}
+.dot{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:800;background:var(--soft);border:2px solid var(--line)}
+.steps li.done .dot{background:var(--leaf);border-color:var(--leaf);color:#fff}
+.steps li.now .dot{background:var(--hal);border-color:var(--hal);color:#3a1d05}
+.poster{background:var(--kum);color:#fff;border-radius:18px;padding:18px;text-align:center;display:grid;gap:8px;justify-items:center}
+.poster .t{font:26px/1.1 'Yatra One',serif;color:var(--hal)}
+.poster .qrbox{background:#fff;border-radius:12px;padding:8px}
+.log{list-style:none;margin:0;padding:0;display:grid;gap:6px;max-height:360px;overflow:auto}
+.log li{border-left:4px solid var(--line);padding:4px 10px;background:var(--soft);border-radius:0 10px 10px 0;font-size:14px}
+.log li.pass{border-color:var(--leaf)}.log li.fail{border-color:var(--bad)}
+/* access */
+.acc{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.acc li{display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;align-items:start;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.verdict{font-weight:800;border-radius:8px;padding:2px 8px;text-align:center;white-space:nowrap}
+.verdict.y{background:light-dark(#e2f1dd,#1f3a1c);color:var(--leaf)}
+.verdict.o{background:light-dark(#fff2c9,#3a2f0a);color:light-dark(#7a5300,#ffd479)}
+.verdict.n{background:light-dark(#fde4e1,#3a1512);color:var(--bad)}
+/* map */
+.fig{position:relative;aspect-ratio:1/1;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:light-dark(#f3ead9,#20150e);cursor:crosshair}
+.fig svg{position:absolute;inset:0;width:100%;height:100%}
+.stat{display:flex;gap:14px;flex-wrap:wrap}
+.stat div{background:var(--soft);border-radius:12px;padding:8px 12px}
+.stat b{display:block;font-size:22px}
+.foot{text-align:center;color:var(--mut);font-size:14px;padding:0 16px 30px}
+.hidden{display:none!important}
+@media(max-width:900px){.grid{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:600px){.acc li{grid-template-columns:minmax(0,1fr)}.verdict{justify-self:start}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">Pansari Express<small>Phase 1 preview · runs the real code in your browser</small></div>
+  <nav aria-label="Preview sections">
+    <a href="#billing">GST billing</a>
+    <a href="#walkin">Walk-in QR</a>
+    <a href="#access">Who can do what</a>
+    <a href="#pay">Payments &amp; delivery</a>
+  </nav>
+</header>
+<main id="view"></main>
+<p class="foot">Sample shop, products, HSN codes and GSTINs are made up for the preview. Have a CA confirm HSN codes and rates before real billing.</p>
+
+<script>/*__PX__*/</script>
+<script>
+{
+const PX = window.PX;
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const rs = (p) => PX.formatINR(p);
+const nowS = () => Math.floor(Date.now() / 1000);
+const SELLER_GSTIN = '08ABCDE1234F1Z' + PX.gstinCheckChar('08ABCDE1234F1Z');
+const view = $('#view');
+
+/* ================= GST billing ================= */
+const CATALOG = [
+  { id: 'p1', n: 'Gond (edible gum) 250 g', hsn: '1301', slab: 5, t: 'INCLUSIVE', p: 18000, u: 'PAC', batch: 'GD-2611', exp: '30/09/2027' },
+  { id: 'p7', n: 'Panjiri ready mix 500 g', hsn: '2106', slab: 18, t: 'INCLUSIVE', p: 32000, u: 'PAC' },
+  { id: 'p12', n: 'Kapur (camphor) 50 g', hsn: '29142100', slab: 18, t: 'INCLUSIVE', p: 8500, u: 'PAC' },
+  { id: 'p13', n: 'Dhoop sticks 20 pcs', hsn: '33074100', slab: 5, t: 'INCLUSIVE', p: 5000, u: 'PAC' },
+  { id: 'p9', n: 'Pooja thali set', hsn: '7418', slab: 12, t: 'INCLUSIVE', p: 24900, u: 'SET' },
+  { id: 'p22', n: 'Kaju W320 500 g', hsn: '08013220', slab: 5, t: 'INCLUSIVE', p: 52000, u: 'PAC' },
+  { id: 'p28', n: 'Chakki atta 5 kg (price + GST)', hsn: '1101', slab: 5, t: 'EXCLUSIVE', p: 24500, u: 'PAC' },
+  { id: 'p33', n: 'Namak 1 kg', hsn: '2501', slab: 0, t: 'INCLUSIVE', p: 2800, u: 'PAC' },
+];
+const STATES = [['08', 'Rajasthan (same state)'], ['07', 'Delhi'], ['27', 'Maharashtra'], ['09', 'Uttar Pradesh']];
+const B = { qty: { p1: 2, p12: 3, p22: 1, p28: 1 }, pos: '08', gstin: '', reg: null, regKey: '' };
+
+function billingInput() {
+  return `<div class="card stack">
+    <div><h2>Make a bill</h2><p class="u">Prices with GST included except atta, which is billed price + GST.</p></div>
+    <div>${CATALOG.map((c) => `<div class="item"><div><b>${esc(c.n)}</b><div class="u">HSN ${c.hsn} · GST ${c.slab}% · ${rs(c.p)}</div></div>
+      <div class="qty"><button data-act="q" data-id="${c.id}" data-d="-1" aria-label="Less">−</button><span>${B.qty[c.id] || 0}</span><button data-act="q" data-id="${c.id}" data-d="1" aria-label="More">+</button></div></div>`).join('')}</div>
+    <label>Customer's state (place of supply)<select id="pos">${STATES.map(([v, l]) => `<option value="${v}" ${v === B.pos ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    <label>Customer GSTIN (optional, makes it a B2B invoice)<input id="gstin" placeholder="e.g. 27AAPFU0939F1ZV" value="${esc(B.gstin)}" autocomplete="off" spellcheck="false"></label>
+    <div id="gstinMsg" class="u"></div>
+  </div>`;
+}
+
+function computeBill() {
+  const lines = CATALOG.filter((c) => (B.qty[c.id] || 0) > 0).map((c) => ({ productId: c.id, name: c.n, hsnCode: c.hsn, qty: B.qty[c.id], unit: c.u, unitPrice: c.p, taxType: c.t, gstSlab: c.slab, batchNumber: c.batch || null, expiryDate: c.exp || null }));
+  if (!lines.length) return { error: 'Add at least one item.' };
+  const g = B.gstin.trim();
+  let buyerGstin = null;
+  if (g) {
+    const v = PX.validateGstin(g);
+    if (!v.valid) return { lines, gstinError: v.reason, comp: PX.computeInvoice(lines, { sellerStateCode: '08', placeOfSupplyStateCode: B.pos }) };
+    buyerGstin = g.toUpperCase();
+  }
+  return { lines, comp: PX.computeInvoice(lines, { sellerStateCode: '08', placeOfSupplyStateCode: B.pos, buyerGstin }) };
+}
+
+function billPaper(r) {
+  if (r.error) return `<div class="paper"><p class="c">${esc(r.error)}</p></div>`;
+  const c = r.comp, t = c.totals, intra = c.supplyType === 'INTRA_STATE';
+  const invNo = PX.formatInvoiceNo('PX', PX.financialYear(), 43);
+  const upi = new PX.MockGstProvider({ mockSigningKey: 'preview-only-mock-irp-key-0123456789ab' }).b2cUpiQr({ sellerGstin: SELLER_GSTIN, payeeVpa: 'pansari.johari@okaxis', payeeName: 'Pansari Express', invoiceNo: invNo, invoiceDate: new Date(), computation: c });
+  const qr = c.kind === 'B2B' && B.reg ? B.reg.SignedQRCode : upi;
+  return `<div class="paper">
+    <h3>Pansari Express</h3>
+    <div class="c m">Johari Bazaar Store, Jaipur 302003<br>GSTIN ${SELLER_GSTIN} · FSSAI 12226999000123</div>
+    <hr>
+    <div class="kv"><b>TAX INVOICE · ${c.kind}</b><span>${invNo}</span></div>
+    <div class="kv m"><span>Date ${PX.eInvoiceDate(new Date())}</span><span>Place of supply: ${esc(PX.stateName(B.pos))} (${B.pos})</span></div>
+    <div class="m">${intra ? 'Same state → GST split into CGST + SGST' : 'Other state → full IGST'}</div>
+    ${c.buyerGstin ? `<div class="m">Bill to GSTIN ${esc(c.buyerGstin)}</div>` : ''}
+    <hr>
+    <table><thead><tr><th>Item</th><th class="n">Qty</th><th class="n">Taxable</th><th class="n">${intra ? 'CGST+SGST' : 'IGST'}</th><th class="n">Total</th></tr></thead>
+    <tbody>${c.lines.map((l) => `<tr><td>${esc(l.name)}<div class="m">HSN ${l.hsnCode} · ${l.gstSlab}%${l.batchNumber ? ` · Batch ${esc(l.batchNumber)}` : ''}</div></td><td class="n">${l.qty}</td><td class="n">${rs(l.taxable)}</td><td class="n">${rs(intra ? l.cgst + l.sgst : l.igst)}</td><td class="n">${rs(l.total)}</td></tr>`).join('')}</tbody></table>
+    <hr>
+    <div class="kv"><span>Taxable value</span><span>${rs(t.taxable)}</span></div>
+    ${intra ? `<div class="kv"><span>CGST</span><span>${rs(t.cgst)}</span></div><div class="kv"><span>SGST</span><span>${rs(t.sgst)}</span></div>` : `<div class="kv"><span>IGST</span><span>${rs(t.igst)}</span></div>`}
+    <div class="kv"><span>Round off</span><span>${rs(t.roundOff)}</span></div>
+    <div class="kv big"><span>Total</span><span>${rs(t.grandTotal)}</span></div>
+    <div class="m">${esc(c.amountInWords)}</div>
+    <hr>
+    <b>GST summary by HSN</b>
+    <table><thead><tr><th>HSN</th><th class="n">Rate</th><th class="n">Taxable</th><th class="n">Tax</th></tr></thead>
+    <tbody>${c.hsnSummary.map((h) => `<tr><td>${h.hsnCode}</td><td class="n">${h.gstSlab}%</td><td class="n">${rs(h.taxable)}</td><td class="n">${rs(h.totalTax)}</td></tr>`).join('')}</tbody></table>
+    ${c.kind === 'B2B' ? (B.reg ? `<hr><div class="m"><b>IRN</b> <code>${B.reg.Irn}</code><br>Ack No ${B.reg.AckNo} · ${B.reg.AckDt}<br><span style="color:#a3122b">Test mode: generated locally, not registered on the GST portal</span></div>` : '<hr><div class="m">Generating e-invoice…</div>') : ''}
+    <div class="qrwrap">${PX.qrSvg(qr, 170)}<div class="m">${c.kind === 'B2B' ? 'Signed e-invoice QR (test key)' : 'UPI QR with GST break-up'}</div></div>
+  </div>`;
+}
+
+async function ensureEinvoice(r) {
+  if (!r.comp || r.comp.kind !== 'B2B') { B.reg = null; B.payload = null; return; }
+  const key = JSON.stringify([B.qty, B.pos, B.gstin]);
+  if (B.regKey === key && B.reg) return;
+  B.regKey = key; B.reg = null;
+  const gst = new PX.MockGstProvider({ mockSigningKey: 'preview-only-mock-irp-key-0123456789ab' });
+  const bState = r.comp.buyerGstin.slice(0, 2);
+  const payload = gst.buildEInvoice({ computation: r.comp, docType: 'INV', docNo: PX.formatInvoiceNo('PX', PX.financialYear(), 43), docDate: new Date(),
+    seller: { legalName: 'Pansari Express Retail LLP', tradeName: 'Pansari Express', gstin: SELLER_GSTIN, addr1: 'Shop 12, Johari Bazaar', location: 'Jaipur', pincode: '302003', stateCode: '08' },
+    buyer: { legalName: 'Sample Buyer Pvt Ltd', gstin: r.comp.buyerGstin, addr1: 'Plot 4', location: 'City', pincode: '411001', stateCode: bState } });
+  const reg = await gst.register(payload);
+  if (B.regKey !== key) return;
+  B.reg = reg; B.payload = payload;
+  renderBillOut();
+}
+
+function renderBillOut() {
+  const r = computeBill();
+  $('#billOut').innerHTML = billPaper(r) + (B.payload && B.reg ? `<details class="card" style="margin-top:18px"><summary><b>E-invoice JSON (INV-01, schema 1.1)</b></summary><div class="row" style="margin:10px 0"><button class="btn alt" data-act="copyjson">Copy JSON</button><span id="copied" class="u"></span></div><pre>${esc(JSON.stringify(B.payload, null, 2))}</pre></details>` : '');
+  const m = $('#gstinMsg');
+  if (m) m.innerHTML = !B.gstin.trim() ? 'Leave blank for a normal B2C bill.' : r.gstinError ? `<span class="no">${esc(r.gstinError)}</span> — billed as B2C until fixed.` : '<span class="ok">GSTIN check digit is valid</span> → B2B invoice with IRN.';
+  ensureEinvoice(r);
+}
+
+function vBilling() {
+  view.innerHTML = `<h1>GST billing engine</h1><p class="sub">Change items, the customer's state or add a GSTIN. The bill is calculated by the same code the app will use: CGST/SGST or IGST, HSN summary, round-off, amount in words and the invoice QR.</p>
+  <div class="grid">${billingInput()}<div id="billOut"></div></div>`;
+  renderBillOut();
+}
+
+/* ================= Walk-in QR ================= */
+const SECRET = 'preview-only-hmac-secret-0123456789abcdef';
+const secretFor = (k) => (k === 'k1' ? SECRET : undefined);
+const STORES = { S1: 'Johari Bazaar Store', S2: 'Malviya Nagar Store' };
+const Q = { store: 'S1', ver: { S1: 1, S2: 1 }, poster: null, guest: null, cart: {}, checkout: null, used: new Set(), log: [] };
+const QITEMS = CATALOG.slice(0, 5);
+const log = (ok, msg) => { Q.log.unshift({ ok, msg, at: new Date().toLocaleTimeString('en-IN') }); };
+
+function stepClass(i) {
+  const done = [!!Q.poster, !!Q.guest, Object.values(Q.cart).some((v) => v > 0), !!Q.checkout, Q.checkout && Q.used.has(Q.checkout.n)];
+  const first = done.indexOf(false);
+  return done[i] ? 'done' : i === first ? 'now' : '';
+}
+
+function vWalkin() {
+  const cartN = Object.values(Q.cart).reduce((a, b) => a + b, 0);
+  const left = Q.checkout ? Math.max(0, Q.checkout.exp - nowS()) : 0;
+  view.innerHTML = `<h1>Walk-in QR: scan, shop, pay at counter</h1><p class="sub">A customer scans the poster at the counter with their phone camera — no app, no sign-up. Every check below is the real HMAC signing and verification code from Phase 1.</p>
+  <div class="grid">
+   <div class="stack">
+    <div class="card"><ol class="steps">
+      <li class="${stepClass(0)}"><span class="dot">1</span><div><h2>Print the store poster</h2><div class="chips">${Object.entries(STORES).map(([k, n]) => `<button class="chip ${Q.store === k ? 'on' : ''}" data-act="qstore" data-v="${k}">${n}</button>`).join('')}</div>
+        <div class="row" style="margin-top:8px"><button class="btn" data-act="qsign">Generate poster QR</button><button class="btn alt" data-act="qrevoke">Revoke all posters</button></div><div class="u">Poster key version: ${Q.ver[Q.store]}</div></div></li>
+      <li class="${stepClass(1)}"><span class="dot">2</span><div><h2>Customer scans</h2><div class="row"><button class="btn" data-act="qscan" ${Q.poster ? '' : 'disabled'}>Scan this poster</button><button class="btn alt" data-act="qforge" ${Q.poster ? '' : 'disabled'}>Try a forged poster</button></div>
+        ${Q.guest ? `<div class="u">Guest session for <b>${STORES[Q.guest.sid]}</b> · ends ${new Date(Q.guest.exp * 1000).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>` : ''}</div></li>
+      <li class="${stepClass(2)}"><span class="dot">3</span><div><h2>Shop from this store's shelf</h2>${Q.guest ? QITEMS.map((c) => `<div class="item"><div><b>${esc(c.n)}</b><div class="u">${rs(c.p)} · Aisle A${(c.p % 5) + 1}</div></div><div class="qty"><button data-act="cq" data-id="${c.id}" data-d="-1" aria-label="Less">−</button><span>${Q.cart[c.id] || 0}</span><button data-act="cq" data-id="${c.id}" data-d="1" aria-label="More">+</button></div></div>`).join('') : '<div class="u">Opens after a genuine scan.</div>'}</div></li>
+      <li class="${stepClass(3)}"><span class="dot">4</span><div><h2>Show checkout QR at the counter</h2><button class="btn hal" data-act="qcheckout" ${Q.guest && cartN ? '' : 'disabled'}>Create checkout QR (${cartN} item${cartN === 1 ? '' : 's'})</button>${Q.checkout ? `<div class="u" id="cdown">Valid for ${Math.floor(left / 60)} min ${left % 60} s · single use</div>` : ''}</div></li>
+      <li class="${stepClass(4)}"><span class="dot">5</span><div><h2>Cashier scans it</h2><div class="row"><button class="btn" data-act="qredeem" data-v="S1" ${Q.checkout ? '' : 'disabled'}>Staff at Johari Bazaar</button><button class="btn alt" data-act="qredeem" data-v="S2" ${Q.checkout ? '' : 'disabled'}>Staff at Malviya Nagar</button></div></div></li>
+    </ol></div>
+    <div class="card"><h2>Security checks</h2><ul class="log">${Q.log.map((l) => `<li class="${l.ok ? 'pass' : 'fail'}"><span class="${l.ok ? 'ok' : 'no'}">${l.ok ? 'Passed' : 'Blocked'}</span> · ${esc(l.msg)} <span class="u">${l.at}</span></li>`).join('') || '<li>Generate a poster to begin.</li>'}</ul></div>
+   </div>
+   <div class="stack">
+    ${Q.poster ? `<div class="poster"><div class="t">Pansari Express</div><div>${STORES[Q.poster.sid]}</div><div class="qrbox">${PX.qrSvg(Q.poster.url, 200)}</div><b>Scan to shop this store · no app needed</b><div style="font-size:12px;opacity:.85;overflow-wrap:anywhere">${esc(Q.poster.url)}</div></div>` : '<div class="card u">The printable poster appears here.</div>'}
+    ${Q.checkout ? `<div class="card"><h2>Customer's phone</h2><div class="qrwrap">${PX.qrSvg(Q.checkout.token, 180)}</div><p class="u" style="text-align:center">Checkout token · ${esc(Q.checkout.cid)}</p></div>` : ''}
+   </div>
+  </div>`;
+}
+
+const QA = {
+  async qstore(d) { Q.store = d.v; },
+  async qsign() {
+    const token = await PX.signToken({ t: 'store', sid: Q.store, ver: Q.ver[Q.store], iat: nowS() }, 'k1', SECRET);
+    Q.poster = { sid: Q.store, token, url: PX.storeQrUrl('https://shop.pansari.in', Q.store, token) };
+    Q.guest = null; Q.cart = {}; Q.checkout = null;
+    log(true, `Poster signed for ${STORES[Q.store]} (key version ${Q.ver[Q.store]})`);
+  },
+  async qrevoke() {
+    Q.ver[Q.store]++;
+    log(true, `All old posters for ${STORES[Q.store]} revoked — key version is now ${Q.ver[Q.store]}`);
+  },
+  async qscan() {
+    try {
+      const p = await PX.verifyToken(Q.poster.token, { expectedType: 'store', secretFor });
+      if (p.ver !== Q.ver[p.sid]) { log(false, 'Poster was revoked — ask the shop for the new one'); Q.guest = null; return; }
+      Q.guest = { sid: p.sid, exp: nowS() + PX.QR_GUEST_SESSION_SECONDS };
+      log(true, `Signature genuine → anonymous guest can see only ${STORES[p.sid]} for 2 hours`);
+    } catch (e) { log(false, `Scan rejected (${e.code || e.message})`); }
+  },
+  async qforge() {
+    const [v, kid, , sig] = Q.poster.token.split('.');
+    const other = Q.poster.sid === 'S1' ? 'S2' : 'S1';
+    const body = PX.b64urlEncode(new TextEncoder().encode(JSON.stringify({ t: 'store', sid: other, ver: 1, iat: nowS() })));
+    try { await PX.verifyToken(`${v}.${kid}.${body}.${sig}`, { expectedType: 'store', secretFor }); log(true, 'Forged poster accepted?!'); }
+    catch (e) { log(false, `Someone edited the poster to point at ${STORES[other]} — rejected (${e.code})`); }
+  },
+  async cq(d) { const n = (Q.cart[d.id] || 0) + Number(d.d); Q.cart[d.id] = Math.max(0, Math.min(9, n)); Q.checkout = null; },
+  async qcheckout() {
+    const n = PX.randomId(9), cid = 'cart_' + PX.randomId(6);
+    const payload = { t: 'checkout', sid: Q.guest.sid, cid, uid: 'guest_anon', iat: nowS(), exp: nowS() + PX.CHECKOUT_TOKEN_TTL_SECONDS, n };
+    Q.checkout = { ...payload, token: await PX.signToken(payload, 'k1', SECRET) };
+    log(true, 'Checkout QR issued — 10 minutes, one use, prices re-checked by the server at billing');
+  },
+  async qredeem(d) {
+    try {
+      const p = await PX.verifyToken(Q.checkout.token, { expectedType: 'checkout', secretFor });
+      if (p.sid !== d.v) { log(false, `Staff of ${STORES[d.v]} cannot bill a ${STORES[p.sid]} cart`); return; }
+      if (Q.used.has(p.n)) { log(false, 'This checkout QR was already used — no double billing'); return; }
+      Q.used.add(p.n);
+      const items = Object.entries(Q.cart).filter(([, q]) => q > 0);
+      const comp = PX.computeInvoice(items.map(([id, q]) => { const c = CATALOG.find((x) => x.id === id); return { productId: id, name: c.n, hsnCode: c.hsn, qty: q, unit: c.u, unitPrice: c.p, taxType: c.t, gstSlab: c.slab }; }), { sellerStateCode: '08', placeOfSupplyStateCode: '08' });
+      log(true, `Cart accepted at the counter · bill ${rs(comp.totals.grandTotal)} incl. GST ${rs(comp.totals.totalTax)}`);
+    } catch (e) { log(false, `Checkout QR rejected (${e.code || e.message})`); }
+  },
+};
+
+/* ================= Access ================= */
+const ROLES = [['customer', 'Customer'], ['guest', 'Walk-in guest'], ['seller', 'Shop owner'], ['staff', 'Sales boy / staff'], ['rider', 'Delivery rider'], ['compliance', 'Compliance'], ['admin', 'Super admin (you)'], ['public', 'Not signed in']];
+const ACCESS = [
+  ['See store name, timing and location', { customer: 'y', guest: 'y', seller: 'y', staff: 'y', rider: 'y', compliance: 'y', admin: 'y', public: 'y' }],
+  ['See stock and prices', { customer: 'y', guest: ['o', 'Only the store whose QR they scanned, for 2 hours'], seller: ['o', 'Own shops'], staff: ['o', 'Shops they are assigned to'], rider: 'n', compliance: 'y', admin: 'y', public: 'n' }],
+  ['See purchase price and batch records', { customer: 'n', guest: 'n', seller: ['o', 'Own shops'], staff: ['o', 'Assigned shops'], rider: 'n', compliance: 'y', admin: 'y', public: 'n' }],
+  ['Change selling price or stock from the app', { customer: 'n', guest: 'n', seller: ['n', 'Only through server billing / stock functions'], staff: ['n', 'Only through server functions'], rider: 'n', compliance: 'n', admin: ['n', 'Only through server functions'], public: 'n' }],
+  ['Edit shelf / bin location and reorder level', { customer: 'n', guest: 'n', seller: ['o', 'Own shops'], staff: ['o', 'Assigned shops'], rider: 'n', compliance: 'n', admin: 'n', public: 'n' }],
+  ['Fill a walk-in cart', { customer: 'n', guest: ['o', 'Only for the scanned store, ids and qty only, 10 minutes'], seller: 'n', staff: 'n', rider: 'n', compliance: 'n', admin: 'n', public: 'n' }],
+  ['Read orders and GST invoices', { customer: ['o', 'Their own'], guest: ['o', 'Their own walk-in bill'], seller: ['o', 'Own business'], staff: ['o', 'Assigned shops'], rider: ['o', 'Orders assigned to them'], compliance: 'y', admin: 'y', public: 'n' }],
+  ['Create or edit orders / invoices directly', { customer: 'n', guest: 'n', seller: 'n', staff: 'n', rider: 'n', compliance: 'n', admin: 'n', public: 'n' }],
+  ['Change their own wallet or loyalty points', { customer: 'n', guest: 'n', seller: 'n', staff: 'n', rider: 'n', compliance: 'n', admin: 'n', public: 'n' }],
+  ['Go online for deliveries', { customer: 'n', guest: 'n', seller: 'n', staff: 'n', rider: ['o', 'Only after KYC is verified'], compliance: 'n', admin: 'n', public: 'n' }],
+  ['Edit HSN / GST rate master', { customer: 'n', guest: 'n', seller: 'n', staff: 'n', rider: 'n', compliance: 'n', admin: ['o', 'Valid slabs only, every edit logged'], public: 'n' }],
+  ['Give someone a role (staff, rider, owner…)', { customer: 'n', guest: 'n', seller: 'n', staff: 'n', rider: 'n', compliance: 'n', admin: ['o', 'Cannot remove the last super admin'], public: 'n' }],
+  ['Read the audit log', { customer: 'n', guest: 'n', seller: 'n', staff: 'n', rider: 'n', compliance: 'y', admin: 'y', public: 'n' }],
+];
+let accRole = 'guest';
+function vAccess() {
+  const label = { y: 'Allowed', o: 'Limited', n: 'Blocked' };
+  view.innerHTML = `<h1>Who can do what</h1><p class="sub">These are the database security rules from Phase 1, written out in plain words. Pick a role. Anything not listed is blocked by default; money, tax and stock change only inside server functions.</p>
+  <div class="chips" style="margin-bottom:16px">${ROLES.map(([k, l]) => `<button class="chip ${k === accRole ? 'on' : ''}" data-act="role" data-v="${k}">${l}</button>`).join('')}</div>
+  <ul class="acc">${ACCESS.map(([a, m]) => { const v = m[accRole]; const [k, note] = Array.isArray(v) ? v : [v, '']; return `<li><span class="verdict ${k}">${label[k]}</span><div><b>${a}</b>${note ? `<div class="u">${note}</div>` : ''}</div></li>`; }).join('')}</ul>`;
+}
+
+/* ================= Payments & delivery ================= */
+const pay = new PX.MockPaymentProvider({ latencyMs: 450, webhookSecret: 'preview-only-webhook-secret-0123456789ab' });
+const P = { amount: '690', method: 'UPI_QR', outcome: 'success', intent: null, busy: false, events: [] };
+pay.onEvent(async (e, raw, sig) => { let ok = false; try { await pay.verifyWebhook(raw, sig); ok = true; } catch {} P.events.unshift({ e, ok }); render(); });
+const geo = new PX.LocalGeoProvider({ maxDistanceMeters: 5000 });
+const ZONES = [
+  { zoneId: 'z1', name: 'Walled city + Raja Park', isActive: true, storeIds: ['S1'], geometryJson: JSON.stringify({ type: 'Polygon', coordinates: [[[75.79, 26.888], [75.852, 26.888], [75.862, 26.93], [75.825, 26.948], [75.79, 26.932], [75.79, 26.888]]] }) },
+  { zoneId: 'z2', name: 'Malviya Nagar', isActive: true, storeIds: ['S2'], geometryJson: JSON.stringify({ type: 'Polygon', coordinates: [[[75.798, 26.828], [75.853, 26.828], [75.856, 26.876], [75.80, 26.879], [75.798, 26.828]]] }) },
+];
+const GSTORES = [{ storeId: 'S1', name: 'Johari Bazaar', location: { lat: 26.9196, lng: 75.8267 }, isActive: true, acceptsOnline: true }, { storeId: 'S2', name: 'Malviya Nagar', location: { lat: 26.8549, lng: 75.8243 }, isActive: true, acceptsOnline: true }];
+const BOX = { s: 26.80, n: 26.96, w: 75.74, e: 75.90 };
+const G = { pin: { lat: 26.8984, lng: 75.8296 }, res: null, place: null };
+const toXY = (p) => [((p.lng - BOX.w) / (BOX.e - BOX.w)) * 1000, ((BOX.n - p.lat) / (BOX.n - BOX.s)) * 1000];
+
+function mapSvg() {
+  const poly = (z, i) => { const ring = JSON.parse(z.geometryJson).coordinates[0]; const pts = ring.map(([lng, lat]) => toXY({ lat, lng }).join(',')).join(' '); const [cx, cy] = toXY({ lat: ring[0][1], lng: ring[0][0] }); return `<polygon points="${pts}" fill="${i ? '#2f7a3533' : '#f2b70540'}" stroke="${i ? '#2f7a35' : '#c58f00'}" stroke-width="4"/><text x="${cx + 10}" y="${cy - 10}" font-size="28" font-weight="700" fill="currentColor">${z.name}</text>`; };
+  const r = G.res;
+  const pinXY = toXY(G.pin);
+  const line = r && r.store ? (() => { const s = toXY(r.store.location); return `<line x1="${s[0]}" y1="${s[1]}" x2="${pinXY[0]}" y2="${pinXY[1]}" stroke="${r.serviceable ? '#2f7a35' : '#b3261e'}" stroke-width="5" stroke-dasharray="14 10"/>`; })() : '';
+  return `<svg viewBox="0 0 1000 1000" id="map" role="img" aria-label="Delivery zones map. Click to place the customer.">
+    <g stroke="currentColor" stroke-opacity=".08" stroke-width="2">${Array.from({ length: 9 }, (_, i) => `<line x1="${(i + 1) * 100}" y1="0" x2="${(i + 1) * 100}" y2="1000"/><line y1="${(i + 1) * 100}" x1="0" y2="${(i + 1) * 100}" x2="1000"/>`).join('')}</g>
+    ${ZONES.map(poly).join('')}${line}
+    ${GSTORES.map((s) => { const [x, y] = toXY(s.location); return `<rect x="${x - 16}" y="${y - 16}" width="32" height="32" rx="8" fill="#a3122b" stroke="#fff" stroke-width="4"/><text x="${x + 24}" y="${y + 9}" font-size="26" font-weight="800" fill="currentColor">${s.name} store</text>`; }).join('')}
+    <circle cx="${pinXY[0]}" cy="${pinXY[1]}" r="16" fill="#2a160c" stroke="#f2b705" stroke-width="6"/>
+  </svg>`;
+}
+
+async function locate() {
+  G.res = geo.checkServiceability(G.pin, ZONES, GSTORES);
+  G.place = await geo.reverseGeocode(G.pin);
+}
+
+function vPay() {
+  const it = P.intent;
+  const r = G.res;
+  const reason = { OK: 'Deliverable', OUTSIDE_ZONES: 'Outside every delivery zone', NO_STORE_IN_ZONE: 'No open store serves this zone', TOO_FAR: 'Too far from the store' };
+  view.innerHTML = `<h1>Payments and delivery zones</h1><p class="sub">The mock payment gateway and free map maths that stand in for paid APIs until you switch them on. Same interfaces the live providers will plug into.</p>
+  <div class="grid">
+   <div class="card stack">
+    <h2>Payment simulator</h2>
+    <div class="row"><label style="flex:1 1 140px">Amount (₹)<input id="amt" inputmode="decimal" value="${esc(P.amount)}"></label>
+    <label style="flex:1 1 180px">Method<select id="meth">${[['UPI_QR', 'UPI QR'], ['UPI_INTENT', 'UPI app intent'], ['CARD_OK', 'Card (test token: approves)'], ['CARD_BAD', 'Card (test token: declines)'], ['COD', 'Cash on delivery']].map(([v, l]) => `<option value="${v}" ${v === P.method ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
+    <div><div class="u" style="margin-bottom:6px">Customer's response (UPI)</div><div class="chips">${[['success', 'Pays'], ['fail', 'Declines'], ['random', 'Random, 10% fail'], ['manual', 'Stays pending']].map(([v, l]) => `<button class="chip ${P.outcome === v ? 'on' : ''}" data-act="outcome" data-v="${v}">${l}</button>`).join('')}</div></div>
+    <div class="row"><button class="btn" data-act="pcreate" ${P.busy ? 'disabled' : ''}>Start payment</button>
+    ${it && (it.status === 'CREATED' || it.status === 'PENDING') && it.method !== 'COD' ? `<button class="btn hal" data-act="pconfirm" ${P.busy ? 'disabled' : ''}>Customer approves</button>` : ''}
+    ${it && it.method === 'COD' && it.status === 'PENDING' ? `<button class="btn hal" data-act="pcash">Rider collects cash</button>` : ''}
+    ${it && (it.status === 'SUCCEEDED' || it.status === 'PARTIALLY_REFUNDED') ? `<button class="btn alt" data-act="prefund">Refund ₹50</button>` : ''}</div>
+    ${it ? `<div class="stat"><div><span class="u">Status</span><b class="${/SUCC|REFUND/.test(it.status) ? 'ok' : it.status === 'FAILED' ? 'no' : ''}">${P.busy ? 'Waiting…' : it.status}</b></div><div><span class="u">Amount</span><b>${rs(it.amount)}</b></div>${it.refundedAmount ? `<div><span class="u">Refunded</span><b>${rs(it.refundedAmount)}</b></div>` : ''}</div>
+      ${it.failureReason ? `<div class="no">${it.failureReason}</div>` : ''}
+      ${it.upiUri ? `<div class="qrwrap">${PX.qrSvg(it.upiUri, 170)}</div><code class="u">${esc(it.upiUri)}</code>` : ''}` : ''}
+    ${P.events.length ? `<div><b>Gateway webhooks</b><ul class="log" style="margin-top:6px">${P.events.slice(0, 6).map(({ e, ok }) => `<li class="${ok ? 'pass' : 'fail'}">${e.type} · ${rs(e.amount)} · <span class="${ok ? 'ok' : 'no'}">${ok ? 'signature verified' : 'bad signature'}</span></li>`).join('')}</ul></div>` : ''}
+   </div>
+   <div class="card stack">
+    <h2>Can we deliver here?</h2>
+    <p class="u" style="margin:0">Click anywhere on the map, or pick an area.</p>
+    <div class="chips">${[['302003', 'Johari Bazaar'], ['302004', 'Raja Park'], ['302017', 'Malviya Nagar'], ['302020', 'Mansarovar'], ['302029', 'Sanganer']].map(([p, l]) => `<button class="chip" data-act="pin" data-v="${p}">${l}</button>`).join('')}</div>
+    <div class="fig" id="fig">${mapSvg()}</div>
+    ${r ? `<div class="stat"><div><span class="u">Result</span><b class="${r.serviceable ? 'ok' : 'no'}">${reason[r.reason]}</b></div>${r.store ? `<div><span class="u">From</span><b>${esc(r.store.name)}</b></div>` : ''}${r.distanceMeters != null ? `<div><span class="u">Distance</span><b>${(r.distanceMeters / 1000).toFixed(1)} km</b></div><div><span class="u">ETA</span><b>${r.etaMinutes} min</b></div>` : ''}</div>
+    <div class="u">${esc(G.place ? G.place.label : '')} (approximate)</div>` : ''}
+   </div>
+  </div>`;
+  const fig = $('#fig');
+  fig.addEventListener('click', async (ev) => {
+    const b = fig.getBoundingClientRect();
+    const x = (ev.clientX - b.left) / b.width, y = (ev.clientY - b.top) / b.height;
+    G.pin = { lat: BOX.n - y * (BOX.n - BOX.s), lng: BOX.w + x * (BOX.e - BOX.w) };
+    await locate(); render();
+  });
+}
+
+const PA = {
+  async outcome(d) { P.outcome = d.v; pay.configure({ outcome: d.v }); },
+  async pcreate() {
+    const amt = Math.round(parseFloat(P.amount) * 100);
+    if (!(amt > 0)) { P.intent = { status: 'FAILED', failureReason: 'Enter an amount above zero', amount: 0, refundedAmount: 0 }; return; }
+    pay.configure({ outcome: P.outcome });
+    const method = P.method.startsWith('CARD') ? 'CARD' : P.method;
+    P.busy = true; render();
+    try { P.intent = await pay.createIntent({ orderId: 'ORD-' + PX.randomId(4), amount: amt, method, payeeVpa: 'pansari.johari@okaxis', payeeName: 'Pansari Express', cardToken: P.method === 'CARD_OK' ? 'tok_mock_success' : P.method === 'CARD_BAD' ? 'tok_mock_decline' : undefined }); }
+    catch (e) { P.intent = { status: 'FAILED', failureReason: e.message, amount: amt, refundedAmount: 0 }; }
+    P.busy = false;
+  },
+  async pconfirm() { P.busy = true; render(); try { P.intent = await pay.confirm(P.intent.intentId); } catch (e) { P.intent.failureReason = e.message; } P.busy = false; },
+  async pcash() { P.intent = await pay.markCashCollected(P.intent.intentId, 'rider-sonu'); },
+  async prefund() { try { P.intent = (await pay.refund(P.intent.intentId, Math.min(5000, P.intent.amount - P.intent.refundedAmount), 'One item damaged')).intent; } catch (e) { P.intent.failureReason = e.message; } },
+  async pin(d) { const g = await geo.geocodePincode(d.v); if (g) { G.pin = g.center; await locate(); } },
+};
+
+/* ================= wiring ================= */
+const VIEWS = { billing: vBilling, walkin: vWalkin, access: vAccess, pay: vPay };
+let cur = 'billing';
+function render() {
+  document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('on', a.hash === '#' + cur));
+  VIEWS[cur]();
+}
+function route() { const h = location.hash.slice(1); cur = VIEWS[h] ? h : 'billing'; render(); window.scrollTo(0, 0); }
+
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-act]');
+  if (!b || b.disabled) return;
+  const d = b.dataset, a = d.act;
+  if (a === 'q') { B.qty[d.id] = Math.max(0, Math.min(20, (B.qty[d.id] || 0) + Number(d.d))); b.parentElement.querySelector('span').textContent = B.qty[d.id]; renderBillOut(); return; }
+  if (a === 'copyjson') { try { await navigator.clipboard.writeText(JSON.stringify(B.payload, null, 2)); $('#copied').textContent = 'Copied'; } catch { $('#copied').textContent = 'Copy blocked here — select the text instead'; } return; }
+  if (a === 'role') { accRole = d.v; render(); return; }
+  const f = QA[a] || PA[a];
+  if (f) { await f(d); render(); }
+});
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.id === 'gstin') { B.gstin = t.value; renderBillOut(); }
+  if (t.id === 'amt') P.amount = t.value;
+});
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.id === 'pos') { B.pos = t.value; renderBillOut(); }
+  if (t.id === 'meth') { P.method = t.value; }
+});
+setInterval(() => {
+  const el = document.getElementById('cdown');
+  if (!el || !Q.checkout) return;
+  const left = Math.max(0, Q.checkout.exp - nowS());
+  el.textContent = Q.used.has(Q.checkout.n) ? 'Used at the counter' : left ? `Valid for ${Math.floor(left / 60)} min ${left % 60} s · single use` : 'Expired — create a new one';
+}, 1000);
+window.addEventListener('hashchange', route);
+locate().then(route);
+}
+</script>
+</body>
+</html>

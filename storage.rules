@@ -1,0 +1,63 @@
+rules_version = '2';
+
+// Pansari Express — Cloud Storage rules (deny by default).
+// Roles come from custom claims only. Invoice PDFs are written by Cloud Functions
+// (Admin SDK) and handed to customers as short-lived signed URLs.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() { return request.auth != null; }
+    function tok() { return request.auth.token; }
+    function isAnon() { return signedIn() && tok().firebase.sign_in_provider == 'anonymous'; }
+    function role() { return signedIn() ? tok().get('role', isAnon() ? 'anonymous' : 'customer') : 'none'; }
+    function isSuper() { return role() == 'super_admin'; }
+    function isCompliance() { return role() == 'compliance'; }
+    function isSellerOf(vendorId) { return role() == 'seller' && tok().get('vendorId', '') == vendorId; }
+    function isStaffOf(vendorId) { return role() == 'staff' && tok().get('vendorId', '') == vendorId; }
+
+    function isImage() { return request.resource.contentType.matches('image/(jpeg|png|webp)'); }
+    function isImageOrPdf() { return isImage() || request.resource.contentType == 'application/pdf'; }
+    function underMB(n) { return request.resource.size < n * 1024 * 1024; }
+
+    // KYC documents: owner writes once (no overwrite), compliance/super read.
+    match /kyc/{uid}/{fileName} {
+      allow create: if signedIn() && !isAnon() && request.auth.uid == uid
+        && (role() == 'seller' || role() == 'rider')
+        && fileName.matches('^[A-Za-z0-9._-]{1,100}$')
+        && isImageOrPdf() && underMB(10);
+      allow read: if (signedIn() && request.auth.uid == uid) || isCompliance() || isSuper();
+      allow update, delete: if false;
+    }
+
+    // Product images: seller/staff of the vendor upload; public read (catalogue).
+    match /product-images/{vendorId}/{productId}/{fileName} {
+      allow read: if true;
+      allow create, update: if (isSellerOf(vendorId) || isStaffOf(vendorId)) && isImage() && underMB(5);
+      allow delete: if isSellerOf(vendorId) || isSuper();
+    }
+
+    // Invoice PDFs: written by functions only.
+    match /invoices/{vendorId}/{fileName} {
+      allow read: if isSellerOf(vendorId) || isStaffOf(vendorId) || isCompliance() || isSuper();
+      allow write: if false;
+    }
+
+    // Support / damaged-item photos.
+    match /support/{uid}/{ticketId}/{fileName} {
+      allow create: if signedIn() && request.auth.uid == uid && role() != 'anonymous' && isImage() && underMB(8);
+      allow read: if (signedIn() && request.auth.uid == uid) || isCompliance() || isSuper();
+      allow update, delete: if false;
+    }
+
+    // Rider proof-of-delivery photos.
+    match /pod/{riderUid}/{orderId}/{fileName} {
+      allow create: if role() == 'rider' && request.auth.uid == riderUid && isImage() && underMB(5);
+      allow read: if (signedIn() && request.auth.uid == riderUid) || isCompliance() || isSuper();
+      allow update, delete: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

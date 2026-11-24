@@ -1,0 +1,60 @@
+name = "pansari-edge"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+# Route the API through your domain once it is on Cloudflare, e.g.:
+# routes = [{ pattern = "api.yourdomain.com/*", zone_name = "yourdomain.com" }]
+
+[vars]
+APP_VERSION = "0.1.0"
+FIREBASE_PROJECT_ID = "demo-pansari"
+# Project NUMBER (not id) — needed to validate App Check tokens.
+FIREBASE_PROJECT_NUMBER = "000000000000"
+# off | monitor | enforce
+APP_CHECK_MODE = "monitor"
+# mock | live   (live calls Cloudflare siteverify with TURNSTILE_SECRET)
+TURNSTILE_MODE = "mock"
+# Base URL printed inside store QR codes (customer-facing web app).
+PUBLIC_WEB_BASE_URL = "http://localhost:3000"
+# Where Cloud Functions live (emulator default shown). Production:
+# https://asia-south1-<project-id>.cloudfunctions.net
+FUNCTIONS_BASE_URL = "http://127.0.0.1:5001/demo-pansari/asia-south1"
+# Firestore REST base (emulator: http://127.0.0.1:8080/v1)
+FIRESTORE_REST_BASE = "https://firestore.googleapis.com/v1"
+# Key id used to sign NEW store QR codes. Old kids stay valid while present in QR_HMAC_KEYS.
+QR_ACTIVE_KID = "k1"
+# Comma-separated list of allowed browser origins.
+ALLOWED_ORIGINS = "http://localhost:3000,http://localhost:8081"
+# Accept unsigned Auth-emulator tokens. NEVER "true" in production.
+AUTH_EMULATOR = "false"
+
+# Secrets — set with `wrangler secret put <NAME>` (or .dev.vars for local dev):
+#   QR_HMAC_KEYS        JSON object {"k1":"<>=32 char secret>"} — must match functions
+#   EDGE_SHARED_SECRET  >=32 chars — must match functions
+#   TURNSTILE_SECRET    Cloudflare Turnstile secret (only when TURNSTILE_MODE=live)
+
+# Replay guard for counter checkout tokens (one write per redeemed sale).
+[[kv_namespaces]]
+binding = "EPHEMERAL"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+preview_id = "REPLACE_WITH_KV_PREVIEW_ID"
+
+# Workers Rate Limiting API (per-key, per-location counters).
+[[ratelimits]]
+name = "RL_STANDARD"
+namespace_id = "1001"
+  [ratelimits.simple]
+  limit = 60
+  period = 60
+
+[[ratelimits]]
+name = "RL_STRICT"
+namespace_id = "1002"
+  [ratelimits.simple]
+  limit = 10
+  period = 60
+
+[observability]
+enabled = true

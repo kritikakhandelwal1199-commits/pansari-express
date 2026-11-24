@@ -1,0 +1,2 @@
+QR_HMAC_KEYS={"k1":"dev-only-qr-secret-change-me-0123456789"}
+EDGE_SHARED_SECRET=dev-only-edge-secret-change-me-0123456789

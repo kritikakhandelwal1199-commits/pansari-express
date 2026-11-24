@@ -1,0 +1,373 @@
+rules_version = '2';
+
+// =====================================================================
+// Pansari Express — Firestore security rules (zero trust)
+//
+//  * Deny by default. Every collection is listed explicitly below.
+//  * Roles come ONLY from signed custom claims (request.auth.token.role),
+//    never from a Firestore field.
+//  * Price, GST/tax fields, stock quantities, orders, invoices, ledgers and
+//    counters are NEVER client-writable. They change only inside Cloud
+//    Functions (Admin SDK bypasses these rules) using transactions.
+//  * temp_qr_guest (anonymous walk-in) is scoped to exactly one store and
+//    expires with its qrExp claim.
+// =====================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------------------------------------------------------
+    // Identity helpers
+    // ---------------------------------------------------------------
+    function signedIn() { return request.auth != null; }
+    function tok() { return request.auth.token; }
+    function isAnon() { return signedIn() && tok().firebase.sign_in_provider == 'anonymous'; }
+
+    // Effective role. A permanent (phone/email) account with no role claim is a
+    // customer. A guest who upgraded to a phone account loses guest scope and
+    // becomes a customer until the server resets their claims.
+    function role() {
+      let r = tok().get('role', '');
+      return r == 'temp_qr_guest'
+        ? (isAnon() ? 'temp_qr_guest' : 'customer')
+        : (r != '' ? r : (isAnon() ? 'anonymous' : 'customer'));
+    }
+
+    function isSuper()      { return signedIn() && role() == 'super_admin'; }
+    function isSeller()     { return signedIn() && role() == 'seller'; }
+    function isStaff()      { return signedIn() && role() == 'staff'; }
+    function isRider()      { return signedIn() && role() == 'rider'; }
+    function isCompliance() { return signedIn() && role() == 'compliance'; }
+    function isCustomer()   { return signedIn() && role() == 'customer'; }
+
+    function isGuest() {
+      return signedIn()
+        && role() == 'temp_qr_guest'
+        && tok().get('scopedStoreId', '') != ''
+        && tok().get('qrExp', 0) > request.time.toMillis() / 1000;
+    }
+    function guestScope(storeId) { return isGuest() && tok().scopedStoreId == storeId; }
+
+    function myVendor() { return tok().get('vendorId', ''); }
+    function myStores() { return tok().get('storeIds', []); }
+
+    function sellerOfVendor(vendorId) { return isSeller() && vendorId != '' && myVendor() == vendorId; }
+    function staffOfVendor(vendorId)  { return isStaff() && vendorId != '' && myVendor() == vendorId; }
+    // A seller with an empty storeIds claim manages every store of their vendor.
+    function sellerOfStore(storeId, vendorId) {
+      return sellerOfVendor(vendorId) && (myStores().size() == 0 || storeId in myStores());
+    }
+    function staffOfStore(storeId, vendorId) { return staffOfVendor(vendorId) && storeId in myStores(); }
+    function operatesStore(storeId, vendorId) { return sellerOfStore(storeId, vendorId) || staffOfStore(storeId, vendorId); }
+
+    function changedOnly(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+    function isServerNow(v) { return v == request.time; }
+
+    // ---------------------------------------------------------------
+    // users/{uid} — own profile only. Wallet, loyalty and role mirror are server-owned.
+    // ---------------------------------------------------------------
+    match /users/{uid} {
+      allow read: if (signedIn() && request.auth.uid == uid && !isAnon()) || isSuper();
+      allow create: if signedIn() && request.auth.uid == uid && !isAnon()
+        && request.resource.data.keys().hasOnly(['uid', 'displayName', 'phone', 'email', 'roleMirror', 'addresses', 'loyaltyPoints', 'walletBalance', 'createdAt', 'updatedAt'])
+        && request.resource.data.uid == uid
+        && request.resource.data.displayName is string && request.resource.data.displayName.size() <= 80
+        && request.resource.data.phone == tok().get('phone_number', null)
+        && request.resource.data.roleMirror == 'customer'
+        && request.resource.data.loyaltyPoints == 0
+        && request.resource.data.walletBalance == 0
+        && request.resource.data.addresses is list && request.resource.data.addresses.size() <= 10
+        && isServerNow(request.resource.data.createdAt)
+        && isServerNow(request.resource.data.updatedAt);
+      allow update: if signedIn() && request.auth.uid == uid && !isAnon()
+        && changedOnly(['displayName', 'email', 'addresses', 'updatedAt'])
+        && request.resource.data.displayName is string && request.resource.data.displayName.size() <= 80
+        && request.resource.data.addresses is list && request.resource.data.addresses.size() <= 10
+        && isServerNow(request.resource.data.updatedAt);
+      allow delete: if false;
+    }
+
+    // ---------------------------------------------------------------
+    // vendors/{vendorId} — the selling business. Writes via functions (KYC, commission).
+    // ---------------------------------------------------------------
+    match /vendors/{vendorId} {
+      allow read: if sellerOfVendor(vendorId) || staffOfVendor(vendorId) || isCompliance() || isSuper();
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------------
+    // stores/{storeId} — public, non-PII store card (name, hours, location).
+    // Super admin edits directly; every write is mirrored to audit_logs by a trigger.
+    // ---------------------------------------------------------------
+    match /stores/{storeId} {
+      allow read: if true;
+      allow create, update: if isSuper()
+        && request.resource.data.storeId == storeId
+        && request.resource.data.vendorId is string
+        && request.resource.data.stateCode is string && request.resource.data.stateCode.matches('^[0-9]{2}$')
+        && request.resource.data.qrKeyVersion is int && request.resource.data.qrKeyVersion >= 1
+        && (resource == null || request.resource.data.qrKeyVersion >= resource.data.qrKeyVersion);
+      allow delete: if false;
+    }
+
+    // zones/{zoneId} — delivery polygons, public for serviceability checks.
+    match /zones/{zoneId} {
+      allow read: if true;
+      allow create, update: if isSuper()
+        && request.resource.data.zoneId == zoneId
+        && request.resource.data.geometryJson is string
+        && request.resource.data.geometryJson.size() < 200000
+        && request.resource.data.surgeMultiplierBps is int
+        && request.resource.data.surgeMultiplierBps >= 10000 && request.resource.data.surgeMultiplierBps <= 30000;
+      allow delete: if isSuper();
+    }
+
+    // hsn_master/{hsnCode} — global tax master. Readable to signed-in non-guests.
+    match /hsn_master/{hsnCode} {
+      allow read: if signedIn() && !isAnon();
+      allow create, update: if isSuper()
+        && hsnCode.matches('^([0-9]{4}|[0-9]{6}|[0-9]{8})$')
+        && request.resource.data.hsnCode == hsnCode
+        && request.resource.data.gstSlab in [0, 5, 12, 18, 28]
+        && request.resource.data.cessRate is number && request.resource.data.cessRate >= 0 && request.resource.data.cessRate <= 300
+        && request.resource.data.updatedBy == request.auth.uid
+        && isServerNow(request.resource.data.updatedAt);
+      allow delete: if false;
+    }
+
+    // ---------------------------------------------------------------
+    // products/{productId} — catalogue. All writes via functions so tax fields are
+    // validated against hsn_master and edits send the listing back to compliance.
+    // ---------------------------------------------------------------
+    match /products/{productId} {
+      allow read: if (resource.data.isPublished == true && resource.data.complianceStatus == 'APPROVED'
+                      && (isCustomer() || isGuest() || isRider()))
+        || sellerOfVendor(resource.data.vendorId)
+        || staffOfVendor(resource.data.vendorId)
+        || isCompliance()
+        || isSuper();
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------------
+    // store_inventory/{storeId_productId} — unified online + offline stock.
+    // Operators may only change shelf metadata; price/stock are server-only.
+    // ---------------------------------------------------------------
+    match /store_inventory/{invId} {
+      allow read: if (resource.data.isListed == true && (guestScope(resource.data.storeId) || isCustomer()))
+        || operatesStore(resource.data.storeId, resource.data.vendorId)
+        || isCompliance()
+        || isSuper();
+      allow update: if operatesStore(resource.data.storeId, resource.data.vendorId)
+        && changedOnly(['aisleBinCode', 'reorderThreshold', 'isListed', 'updatedAt'])
+        && request.resource.data.aisleBinCode is string && request.resource.data.aisleBinCode.size() <= 24
+        && request.resource.data.reorderThreshold is int
+        && request.resource.data.reorderThreshold >= 0 && request.resource.data.reorderThreshold <= 100000
+        && request.resource.data.isListed is bool
+        && isServerNow(request.resource.data.updatedAt);
+      allow create, delete: if false;
+
+      // Batches carry purchase price → operators, compliance and super admin only.
+      match /batches/{batchId} {
+        allow read: if operatesStore(resource.data.storeId, resource.data.vendorId) || isCompliance() || isSuper();
+        allow write: if false;
+      }
+    }
+
+    // Collection-group queries (expiry sweeps across stores).
+    match /{path=**}/batches/{batchId} {
+      allow read: if operatesStore(resource.data.storeId, resource.data.vendorId) || isCompliance() || isSuper();
+    }
+
+    // stock_ledger — append-only, server-written.
+    match /stock_ledger/{entryId} {
+      allow read: if operatesStore(resource.data.storeId, resource.data.vendorId) || isCompliance() || isSuper();
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------------
+    // temp_carts/{cartId} — walk-in QR cart. Holds product ids + qty only;
+    // prices are recomputed on the server at checkout.
+    // ---------------------------------------------------------------
+    match /temp_carts/{cartId} {
+      function validItems(items) { return items is list && items.size() <= 50; }
+
+      allow create: if isGuest()
+        && request.resource.data.keys().hasOnly(['cartId', 'storeId', 'vendorId', 'guestUid', 'items', 'status', 'createdAt', 'expiresAt'])
+        && request.resource.data.cartId == cartId
+        && request.resource.data.storeId == tok().scopedStoreId
+        && request.resource.data.vendorId == get(/databases/$(database)/documents/stores/$(tok().scopedStoreId)).data.vendorId
+        && request.resource.data.guestUid == request.auth.uid
+        && request.resource.data.status == 'OPEN'
+        && validItems(request.resource.data.items)
+        && isServerNow(request.resource.data.createdAt)
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(10, 'm');
+
+      allow read: if (isGuest() && resource.data.guestUid == request.auth.uid)
+        || operatesStore(resource.data.storeId, resource.data.vendorId)
+        || isSuper();
+
+      allow update: if isGuest()
+        && resource.data.guestUid == request.auth.uid
+        && resource.data.storeId == tok().scopedStoreId
+        && resource.data.status == 'OPEN'
+        && resource.data.expiresAt > request.time
+        && changedOnly(['items', 'status'])
+        && request.resource.data.status in ['OPEN', 'CHECKOUT_PENDING']
+        && validItems(request.resource.data.items);
+
+      allow delete: if isGuest() && resource.data.guestUid == request.auth.uid && resource.data.status == 'OPEN';
+    }
+
+    // ---------------------------------------------------------------
+    // orders / invoices / counters — server-written only.
+    // ---------------------------------------------------------------
+    match /orders/{orderId} {
+      allow read: if (isCustomer() && resource.data.customerUid == request.auth.uid)
+        || (isGuest() && resource.data.guestUid == request.auth.uid)
+        || (isRider() && resource.data.riderUid == request.auth.uid)
+        || operatesStore(resource.data.storeId, resource.data.vendorId)
+        || isCompliance()
+        || isSuper();
+      allow write: if false;
+    }
+
+    match /invoices/{invoiceId} {
+      allow read: if (isCustomer() && resource.data.customerUid == request.auth.uid)
+        || (isGuest() && resource.data.guestUid == request.auth.uid)
+        || sellerOfVendor(resource.data.vendorId)
+        || staffOfStore(resource.data.storeId, resource.data.vendorId)
+        || isCompliance()
+        || isSuper();
+      allow write: if false;
+    }
+
+    match /counters/{counterId} {
+      allow read, write: if false;
+    }
+
+    // ---------------------------------------------------------------
+    // riders/{uid} — rider may toggle shift and push location; money is server-only.
+    // ---------------------------------------------------------------
+    match /riders/{uid} {
+      allow read: if (isRider() && request.auth.uid == uid) || isCompliance() || isSuper();
+      allow create: if isRider() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'phone', 'vehicleType', 'vehicleNumber', 'kycStatus', 'isOnline', 'lastLocation', 'lastSeenAt', 'homeStoreId', 'codCashInHand', 'earningsBalance', 'activeOrderIds'])
+        && request.resource.data.uid == uid
+        && request.resource.data.phone == tok().get('phone_number', '')
+        && request.resource.data.vehicleType in ['BICYCLE', 'SCOOTER', 'MOTORCYCLE', 'EV']
+        && request.resource.data.kycStatus == 'PENDING'
+        && request.resource.data.isOnline == false
+        && request.resource.data.codCashInHand == 0
+        && request.resource.data.earningsBalance == 0
+        && request.resource.data.activeOrderIds.size() == 0;
+      allow update: if isRider() && request.auth.uid == uid
+        && changedOnly(['isOnline', 'lastLocation', 'lastSeenAt'])
+        && request.resource.data.isOnline is bool
+        && (request.resource.data.isOnline == false || resource.data.kycStatus == 'VERIFIED')
+        && (request.resource.data.lastLocation == null
+            || (request.resource.data.lastLocation.lat is number
+                && request.resource.data.lastLocation.lat >= -90 && request.resource.data.lastLocation.lat <= 90
+                && request.resource.data.lastLocation.lng is number
+                && request.resource.data.lastLocation.lng >= -180 && request.resource.data.lastLocation.lng <= 180))
+        && isServerNow(request.resource.data.lastSeenAt);
+      allow delete: if false;
+    }
+
+    // ---------------------------------------------------------------
+    // KYC — owner uploads; compliance reviews through a function (audited).
+    // ---------------------------------------------------------------
+    match /kyc_documents/{docId} {
+      allow create: if (isSeller() || isRider())
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerType == (isSeller() ? 'VENDOR' : 'RIDER')
+        && request.resource.data.vendorId == (isSeller() ? myVendor() : null)
+        && request.resource.data.docType in ['GSTIN_CERT', 'FSSAI_LICENSE', 'PAN', 'DRIVING_LICENSE', 'VEHICLE_RC', 'AADHAAR_MASKED', 'CANCELLED_CHEQUE']
+        && request.resource.data.storagePath is string
+        && request.resource.data.storagePath.matches('^kyc/' + request.auth.uid + '/[A-Za-z0-9._-]{1,100}$')
+        && request.resource.data.status == 'PENDING'
+        && request.resource.data.reviewerUid == null
+        && request.resource.data.reviewNote == null
+        && request.resource.data.reviewedAt == null
+        && isServerNow(request.resource.data.createdAt);
+      allow read: if (signedIn() && resource.data.ownerUid == request.auth.uid) || isCompliance() || isSuper();
+      allow update, delete: if false;
+    }
+
+    // ---------------------------------------------------------------
+    // Support tickets (chatbot escalation).
+    // ---------------------------------------------------------------
+    match /support_tickets/{ticketId} {
+      allow create: if signedIn() && role() != 'anonymous'
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.creatorRole == role()
+        && request.resource.data.status == 'OPEN'
+        && request.resource.data.assignedTo == null
+        && request.resource.data.priority in ['LOW', 'NORMAL', 'HIGH']
+        && request.resource.data.subject is string && request.resource.data.subject.size() <= 140
+        && request.resource.data.transcript is list && request.resource.data.transcript.size() <= 200
+        && request.resource.data.attachmentPaths is list && request.resource.data.attachmentPaths.size() <= 5
+        && isServerNow(request.resource.data.createdAt)
+        && isServerNow(request.resource.data.updatedAt);
+      allow read: if (signedIn() && resource.data.createdBy == request.auth.uid) || isCompliance() || isSuper();
+      allow update: if (signedIn() && resource.data.createdBy == request.auth.uid
+          && resource.data.status != 'CLOSED'
+          && changedOnly(['transcript', 'attachmentPaths', 'updatedAt'])
+          && request.resource.data.transcript.size() <= 200
+          && request.resource.data.attachmentPaths.size() <= 5
+          && isServerNow(request.resource.data.updatedAt))
+        || ((isCompliance() || isSuper())
+          && changedOnly(['status', 'assignedTo', 'priority', 'transcript', 'updatedAt'])
+          && isServerNow(request.resource.data.updatedAt));
+      allow delete: if false;
+    }
+
+    // Hygiene / cold-chain checklists: staff submit, compliance reviews.
+    match /compliance_checks/{checkId} {
+      allow create: if operatesStore(request.resource.data.storeId, request.resource.data.vendorId)
+        && request.resource.data.submittedBy == request.auth.uid
+        && request.resource.data.reviewStatus == 'PENDING'
+        && request.resource.data.reviewerUid == null
+        && request.resource.data.answers is list && request.resource.data.answers.size() <= 60
+        && isServerNow(request.resource.data.submittedAt);
+      allow read: if operatesStore(resource.data.storeId, resource.data.vendorId) || isCompliance() || isSuper();
+      allow update: if (isCompliance() || isSuper())
+        && changedOnly(['reviewStatus', 'reviewerUid', 'reviewNote'])
+        && request.resource.data.reviewerUid == request.auth.uid
+        && request.resource.data.reviewStatus in ['OK', 'ACTION_REQUIRED'];
+      allow delete: if false;
+    }
+
+    match /recalls/{recallId} {
+      allow read: if sellerOfVendor(resource.data.vendorId) || staffOfVendor(resource.data.vendorId) || isCompliance() || isSuper();
+      allow write: if false;
+    }
+
+    match /payouts/{payoutId} {
+      allow read: if sellerOfVendor(resource.data.get('vendorId', ''))
+        || (isRider() && resource.data.get('riderUid', '') == request.auth.uid)
+        || isSuper();
+      allow write: if false;
+    }
+
+    match /audit_logs/{logId} {
+      allow read: if isSuper() || isCompliance();
+      allow write: if false;
+    }
+
+    match /platform_config/public {
+      allow read: if true;
+      allow write: if isSuper();
+    }
+    match /platform_config/{docId} {
+      allow read, write: if isSuper();
+    }
+
+    // Anything not matched above is denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

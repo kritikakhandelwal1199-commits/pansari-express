@@ -1,0 +1,27 @@
+node_modules/
+dist/
+lib/
+.wrangler/
+*.log
+.env
+.env.*
+!.env.example
+.dev.vars
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+service-account*.json
+out/
+
+# local secrets
+functions/.secret.local
+edge/worker/.dev.vars
+functions/deploy/
+apps/web/out/
+apps/web/.env.local
+apps/web/.env.production
+.next/
+*.tsbuildinfo
+preview/web/dist/
+preview/dist/
+.vercel/
