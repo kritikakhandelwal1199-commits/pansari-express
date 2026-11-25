@@ -83,7 +83,10 @@ describe('temp_qr_guest scoping', () => {
     await assertFails(getDoc(doc(ctx.guest(), 'store_inventory/S1_p12/batches/b1')));
   });
   it('loses access once the session expires', async () => {
-    await assertFails(getDoc(doc(ctx.guest('guest1', 'S1', now() - 10), 'store_inventory/S1_p12')));
+    // Listed rows are public on purpose (browse before login); an expired guest can't make a cart or see batches.
+    const cart = { cartId: 'cx', storeId: 'S1', vendorId: 'V1', guestUid: 'guest1', items: [{ productId: 'p12', qty: 1 }], status: 'OPEN', createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 9 * 60 * 1000) };
+    await assertFails(setDoc(doc(ctx.guest('guest1', 'S1', now() - 10), 'temp_carts/cx'), cart));
+    await assertFails(getDoc(doc(ctx.guest('guest1', 'S1', now() - 10), 'store_inventory/S1_p13')));
   });
   it('cannot change price or stock', async () => {
     await assertFails(updateDoc(doc(ctx.guest(), 'store_inventory/S1_p12'), { sellingPrice: 1 }));
@@ -111,8 +114,9 @@ describe('sellers and staff', () => {
     await assertFails(updateDoc(doc(ctx.seller(), 'store_inventory/S1_p12'), { onHand: 999, updatedAt: serverTimestamp() }));
   });
   it('another vendor is locked out', async () => {
-    await assertFails(getDoc(doc(ctx.seller('V2'), 'store_inventory/S1_p12')));
+    await assertFails(getDoc(doc(ctx.seller('V2'), 'store_inventory/S1_p13'))); // unlisted row
     await assertFails(getDoc(doc(ctx.seller('V2'), 'store_inventory/S1_p12/batches/b1')));
+    await assertFails(updateDoc(doc(ctx.seller('V2'), 'store_inventory/S1_p12'), { aisleBinCode: 'X', updatedAt: serverTimestamp() }));
   });
   it('staff only operate their own stores', async () => {
     await assertSucceeds(getDoc(doc(ctx.staff(['S1']), 'store_inventory/S1_p12/batches/b1')));
