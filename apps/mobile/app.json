@@ -3,18 +3,55 @@
     "name": "Pansari Express",
     "slug": "pansari-express",
     "scheme": "pansari",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "ios": { "bundleIdentifier": "in.pansari.express", "supportsTablet": false },
-    "android": { "package": "in.pansari.express", "edgeToEdgeEnabled": true },
-    "web": { "bundler": "metro", "output": "single" },
+    "ios": {
+      "bundleIdentifier": "in.pansari.express",
+      "supportsTablet": false,
+      "buildNumber": "4"
+    },
+    "android": {
+      "package": "in.pansari.express",
+      "edgeToEdgeEnabled": true,
+      "versionCode": 4,
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
     "plugins": [
       "expo-router",
       "expo-status-bar",
-      ["expo-location", { "locationWhenInUsePermission": "Pansari uses your location to find the nearest store that can deliver to you." }]
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Pansari uses your location to find the nearest store that can deliver to you, and for riders on shift, to show the customer where their order is."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Pansari uses the camera to scan product barcodes and photograph documents.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pansari uses your photos to upload KYC documents and delivery photos.",
+          "cameraPermission": "Pansari uses the camera to photograph documents and deliveries."
+        }
+      ]
     ],
-    "experiments": { "typedRoutes": false }
+    "experiments": {
+      "typedRoutes": false
+    }
   }
 }

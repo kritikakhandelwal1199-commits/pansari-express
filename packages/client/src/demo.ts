@@ -1270,7 +1270,7 @@ export class DemoDataClient implements DataClient {
       createdMs: Date.now(),
       reviewedMs: null,
       // demo keeps small files so compliance can view them; large ones keep only the name
-      dataUrl: i.file.size <= 350 * 1024 ? await blobToDataUrl(i.file) : null,
+      dataUrl: i.preview && i.preview.length <= 480 * 1024 ? i.preview : i.file.size <= 350 * 1024 ? await blobToDataUrl(i.file).catch(() => null) : null,
     };
     this.st.kyc.unshift(rec);
     // keep localStorage small: only the latest 12 files keep their content

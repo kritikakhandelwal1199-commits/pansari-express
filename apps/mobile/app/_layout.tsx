@@ -26,6 +26,12 @@ export default function RootLayout() {
             <Stack.Screen name="login" options={{ title: 'Sign in', presentation: 'modal' }} />
             <Stack.Screen name="address" options={{ title: 'Delivery address', presentation: 'modal' }} />
             <Stack.Screen name="help" options={{ title: 'Pansari help', presentation: 'modal' }} />
+            <Stack.Screen name="owner" options={{ headerShown: false }} />
+            <Stack.Screen name="staff" options={{ headerShown: false }} />
+            <Stack.Screen name="rider" options={{ headerShown: false }} />
+            <Stack.Screen name="compliance" options={{ headerShown: false }} />
+            <Stack.Screen name="admin" options={{ headerShown: false }} />
+            <Stack.Screen name="pick/[id]" options={{ title: 'Pick order' }} />
           </Stack>
         </ShopProvider>
       </DataProvider>

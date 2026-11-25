@@ -1,34 +1,45 @@
-# Pansari Express — customer phone app (Expo)
+# Pansari Express — phone app (Expo)
 
-Android + iPhone app from one codebase (Expo SDK 58, Expo Router, NativeWind).
-Same screens and rules as the web shop: browse the nearest store, cart with delivery fee,
-UPI / card (test mode) / wallet / cash on delivery, order tracking with the 4-digit delivery
-code, wallet with instant refunds, and the help chatbot.
+One Android + iPhone app for everyone (Expo SDK 58, Expo Router, NativeWind). After sign-in each
+person lands in their own part of the app:
 
-It reuses `@pansari/client` (the DataClient + demo backend) and `@pansari/shared` (GST engine,
-FEFO stock planner, order rules, chatbot), so totals and stock behave exactly like the web app.
+| Who | Opens | What they do |
+|---|---|---|
+| Customer | Shop tabs | Browse nearest store, cart, UPI / card (test) / wallet / COD, track order, delivery code, wallet, help chat |
+| Shop owner (`seller`) | `/owner` | Online orders (accept → pack → hand to rider / send out → deliver, cancel), assign riders, riders & COD cash, stock, business KYC, recall banner |
+| Staff | `/staff` | Pick & pack (bin-sorted list with FEFO batch numbers, camera barcode scan), assign rider, receive stock, shelf count |
+| Rider | `/rider` | Go on shift, collect → start trip → deliver with code, cash in hand + ledger, earnings, KYC photos |
+| Compliance | `/compliance` | KYC review with document photo, listing review, batch / whole-product recalls, audit log |
+| Super admin | `/admin` | Overview, people & roles by phone, delivery zones (rectangle editor + address check), GST/HSN master, listings, audit |
+
+It reuses `@pansari/client` (DataClient + demo backend) and `@pansari/shared` (GST engine, FEFO,
+order / rider / recall rules), so totals, stock and permissions behave exactly like the web app.
 
 ## Run
 
 ```bash
 # once, from the repo root
 npm ci && npm run build -w @pansari/shared && npm run build -w @pansari/adapters
-# then
-cd apps/mobile
-npm ci
+cd apps/mobile && npm ci
 npx expo start            # scan the QR with Expo Go, or press a / i for an emulator
 ```
 
-Demo mode only for now: data lives on the phone (AsyncStorage). Sign in with any number
-(OTP 123456) or tap "Customer · Priya". On an order, **Demo: next step** plays the store's
-part (accept → pack → send out → deliver) because the store works on another device.
+Demo mode: data lives on the phone. On the sign-in screen tap any demo account (OTP 123456).
+
+## Installable Android APK (no Play Store)
+
+```bash
+npm i -g eas-cli
+eas login                 # your Expo account
+eas build -p android --profile preview    # demo-mode APK, ~15 min on Expo's servers
+```
+`eas.json` profiles: `preview` (demo APK), `live` (APK against real Firebase), `production` (Play Store bundle).
 
 ## Notes
 
-* Not part of the root npm workspaces on purpose (keeps React Native's dependency tree away
-  from the web build). It links the shared packages with `file:` dependencies; `metro.config.js`
-  watches them.
+* Not part of the root npm workspaces on purpose (keeps React Native's dependency tree away from
+  the web build). It links the shared packages with `file:` dependencies; `metro.config.js` watches them.
 * `lib/polyfills.ts` adds Web Crypto (random bytes, SHA-256, HMAC) for Hermes.
-* Going live needs a React Native Firebase DataClient (phone OTP via `@react-native-firebase/auth`)
-  plugged into `lib/data.tsx`, plus an EAS build for the stores.
+* Camera: `expo-camera` (barcodes), `expo-image-picker` (KYC / delivery photos), `expo-location` (rider shift).
 * `npx expo export --platform android` checks the bundle; CI runs it in `.github/workflows/mobile.yml`.
+  `--platform web` + a static server lets you click through every role in a browser.

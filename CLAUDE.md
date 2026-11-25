@@ -18,6 +18,7 @@ Expo + Firebase + Cloudflare; 6 roles; API-hold mode with mock adapters; 4 phase
 | 1 | Monorepo, Firestore schema/indexes, firestore.rules + storage.rules, Cloudflare Worker (ID-token/App Check verify, HMAC store QR, Turnstile, rate limits, checkout tokens), adapters (Payment/Geo/Auth/GST + PDFs), role + QR-session functions | DONE |
 | 2 | Seller portal, POS counter, walk-in QR storefront, FEFO stock + ledger, product-wise CGST/SGST/IGST billing, invoices + GSTR-1 summary | DONE |
 | 3 | Customer web `/shop` + Expo app `apps/mobile`: OTP login, addresses, zone check, delivery fee, UPI/card(mock)/wallet/COD, tracking + delivery OTP, invoice at dispatch, wallet refunds; seller `/seller/orders` + `/seller/support`; chatbot (shared/support/chatbot.ts) on all surfaces → tickets | DONE |
+| 4b | Native phone screens for every role (owner, staff picker with camera scan, rider, compliance, admin) | DONE (demo mode) |
 | 4 | `/admin` (people & roles by phone, zones editor + SVG map + address check, GST/HSN master that re-rates products, listing review, audit log), `/staff` picker app (bin-sorted pick list with FEFO batch numbers, barcode/camera tick, rider assign, receive stock, shelf count), `/rider` app (KYC upload, shift, collect → start → deliver with code, COD cash + earnings), `/compliance` (KYC review, listing review, batch/whole-product recalls, audit); seller `/seller/riders` (receive COD cash) + `/seller/kyc` | DONE (web, phone-first) |
 
 ## Layout
@@ -45,7 +46,11 @@ apps/web            Next.js 16 static export: /, /login, /shop (+/cart, /orders,
                     components/portal.tsx (PortalShell, `narrow` = phone app), components/phase4.tsx (KycUploader,
                     KycReviewQueue, ListingReview, AuditTable, RiderPicker), components/staff.tsx (ProductFinder)
                     lib/data: types/demo re-export @pansari/client; firebase.ts = FirebaseDataClient
-apps/mobile         Expo SDK 58 + Expo Router + NativeWind customer app. NOT a root workspace (own lockfile,
+apps/mobile         Expo SDK 58 + Expo Router + NativeWind app for EVERY role: customer tabs at /, /owner, /staff
+                    (+ /pick/[id]), /rider, /compliance, /admin; login lands by role (lib/roles.ts); shared bits in
+                    components/role.tsx (RoleGate, StoreProvider, Picker sheet, Scanner, KycUploader, pickPhoto),
+                    components/ops.tsx (RiderPicker, ProductFinder), components/review.tsx (KYC queue, listings,
+                    audit). eas.json: preview (demo APK) / live / production. NOT a root workspace (own lockfile,
                     file: links to packages); metro.config.js watches packages + forces tslib ES build (pdf-lib);
                     lib/polyfills.ts = Web Crypto for Hermes. Demo mode only (no RN Firebase client yet).
 firebase/tests      rules tests (need Firestore emulator + Java)
@@ -123,8 +128,9 @@ Mobile: `cd apps/mobile && npx tsc --noEmit && EXPO_OFFLINE=1 npx expo export --
 ## Next step
 Phase 4 is done on the web (phone-first pages work in a phone browser). Remaining:
 1. Run `npm run test:rules` locally (Java + emulator) and fix anything in the new rider/KYC/cash rules.
-2. Native Expo screens for the rider and picker apps (apps/mobile is still customer-only); reuse
-   DemoDataClient methods already added (myRider, riderOrders, advanceOrder, pickTask, …).
+2. (done) Native Expo screens for every role. Mobile click-through: `expo export --platform web`, serve
+   with an SPA fallback, Playwright at 390×844 (rider on shift → Priya COD → Sunita accept/assign/pick
+   → Vikram collect/start/deliver → owner receives cash) — 0 errors on 25 Nov 2026.
 3. React Native Firebase DataClient for apps/mobile, EAS build.
 4. Rider earnings payouts (`payouts` collection), live rider location on the customer's order page,
    POD photo (storage path pod/{riderUid}/{orderId} already allowed), compliance_checks UI (hygiene).

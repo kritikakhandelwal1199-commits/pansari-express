@@ -4,6 +4,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { Button, Card, ErrorText, rs } from '@/components/ui';
 import { errMsg, useData, useResource } from '@/lib/data';
 import { useShop } from '@/lib/shop';
+import { landing, ROLE_LABEL } from '@/lib/roles';
 
 export default function Account() {
   const { client, user } = useData();
@@ -16,9 +17,10 @@ export default function Account() {
   if (!shop.isCustomer)
     return (
       <View className="flex-1 items-center justify-center gap-3 p-6">
-        <Text className="text-lg font-bold text-ink">{user ? 'This is a shop account' : 'Sign in to your account'}</Text>
-        <Text className="text-center text-muted">Track orders, save addresses and use your wallet.</Text>
-        <Button title={user ? 'Switch account' : 'Sign in'} onPress={() => router.push('/login')} />
+        <Text className="text-lg font-bold text-ink">{user && !user.isAnonymous ? `Signed in as ${ROLE_LABEL[user.role] ?? user.role}` : 'Sign in to your account'}</Text>
+        <Text className="text-center text-muted">{user && !user.isAnonymous ? 'Your work tools are in your own app.' : 'Track orders, save addresses and use your wallet. Shop staff, riders and admins sign in here too.'}</Text>
+        {user && !user.isAnonymous ? <Button title="Open my app" onPress={() => router.replace(landing(user.role))} /> : null}
+        <Button variant={user && !user.isAnonymous ? 'outline' : 'kum'} title={user && !user.isAnonymous ? 'Switch account' : 'Sign in'} onPress={() => router.push('/login')} />
       </View>
     );
 

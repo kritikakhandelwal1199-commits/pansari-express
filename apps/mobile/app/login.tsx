@@ -3,6 +3,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { Button, ErrorText, Field } from '@/components/ui';
 import { errMsg, useData } from '@/lib/data';
+import { landing } from '@/lib/roles';
 
 export default function Login() {
   const { client } = useData();
@@ -24,7 +25,12 @@ export default function Login() {
       setBusy(false);
     }
   }
-  const done = () => (router.canGoBack() ? router.back() : router.replace('/'));
+  /** Customers go back to where they were; team members open their own app. */
+  const done = async (u: { role: string }) => {
+    const to = landing(u?.role);
+    if (to === '/' && router.canGoBack()) router.back();
+    else router.replace(to);
+  };
 
   return (
     <ScrollView contentContainerStyle={{ padding: 20, gap: 14 }} keyboardShouldPersistTaps="handled">
@@ -38,21 +44,24 @@ export default function Login() {
       ) : (
         <>
           <Field label={`OTP sent to ${e164(phone)}`} keyboardType="number-pad" maxLength={6} value={code} onChangeText={(t) => setCode(t.replace(/\D/g, ''))} autoFocus />
-          <Button title="Verify and continue" busy={busy} disabled={code.length !== 6} onPress={() => go(async () => { await client.verifyOtp(vid, code); done(); })} />
+          <Button title="Verify and continue" busy={busy} disabled={code.length !== 6} onPress={() => go(async () => { await done(await client.verifyOtp(vid, code)); })} />
           <Pressable onPress={() => setVid(null)}><Text className="text-center font-semibold text-muted underline">Use a different number</Text></Pressable>
         </>
       )}
       <ErrorText>{err}</ErrorText>
       {client.demoAccounts ? (
         <View className="mt-4 gap-2">
-          <Text className="text-sm font-bold text-muted">Demo customer — one tap</Text>
-          <Pressable
-            onPress={() => go(async () => { const r = await client.sendOtp('+919999999994'); await client.verifyOtp(r.verificationId, '123456'); done(); })}
-            className="rounded-2xl border border-line bg-surface p-4"
-          >
-            <Text className="font-bold text-ink">Customer · Priya</Text>
-            <Text className="text-[13px] text-muted">Saved address in Johari Bazaar, ₹200 wallet</Text>
-          </Pressable>
+          <Text className="text-sm font-bold text-muted">Demo accounts — one tap</Text>
+          {client.demoAccounts().map((a) => (
+            <Pressable
+              key={a.phone}
+              onPress={() => go(async () => { const r = await client.sendOtp(a.phone); await done(await client.verifyOtp(r.verificationId, '123456')); })}
+              className="rounded-2xl border border-line bg-surface p-4"
+            >
+              <Text className="font-bold text-ink">{a.label}</Text>
+              <Text className="text-[13px] text-muted">{a.note}</Text>
+            </Pressable>
+          ))}
         </View>
       ) : null}
     </ScrollView>

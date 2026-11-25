@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Alert, ScrollView, Text, View } from 'react-native';
+import { Alert, Linking, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { customerCanCancel, ONLINE_FLOW } from '@pansari/shared';
 import { Badge, Button, Card, ErrorText, rs } from '@/components/ui';
@@ -75,6 +75,12 @@ export default function OrderScreen() {
             ))}
           </View>
         )}
+        {o.riderName && !closed ? (
+          <View className="flex-row items-center justify-between gap-2 rounded-xl bg-surface-2 p-3">
+            <Text className="flex-1 text-sm text-ink"><Text className="font-bold">{o.riderName}</Text> {o.status === 'DELIVERED' ? 'delivered your order' : 'is delivering your order'}</Text>
+            {o.riderPhone && o.status !== 'DELIVERED' ? <Button variant="outline" title="Call" onPress={() => void Linking.openURL(`tel:${o.riderPhone}`)} /> : null}
+          </View>
+        ) : null}
         {o.invoiceNo ? <Text className="text-sm text-ink">GST invoice {o.invoiceNo} — download it from the web app (Orders).</Text> : null}
         <ErrorText>{err}</ErrorText>
         {customerCanCancel(o.status) ? (

@@ -380,6 +380,8 @@ export interface KycUploadInput {
   fileName: string;
   /** Required for Aadhaar: the uploader confirms only the last 4 digits are visible. */
   maskedConfirmed?: boolean;
+  /** Phone app: a small data: URL of the photo (React Native Blobs cannot be read back in the demo). */
+  preview?: string;
 }
 
 export interface RiderCashRow {
