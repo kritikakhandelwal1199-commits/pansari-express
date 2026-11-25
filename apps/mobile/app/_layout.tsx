@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { DataProvider } from '@/lib/data';
 import { ShopProvider } from '@/lib/shop';
+import { RecaptchaHost } from '@/lib/live';
 
 export default function RootLayout() {
   return (
@@ -33,6 +34,7 @@ export default function RootLayout() {
             <Stack.Screen name="admin" options={{ headerShown: false }} />
             <Stack.Screen name="pick/[id]" options={{ title: 'Pick order' }} />
           </Stack>
+          <RecaptchaHost />
         </ShopProvider>
       </DataProvider>
     </SafeAreaProvider>

@@ -24,7 +24,9 @@ Expo + Firebase + Cloudflare; 6 roles; API-hold mode with mock adapters; 4 phase
 
 ## Layout
 ```
-packages/client     DataClient interface (types.ts) + DemoDataClient (demo.ts); source-only package used by web + mobile
+packages/client     DataClient interface (types.ts) + DemoDataClient (demo.ts) + FirebaseDataClient (firebase.ts, import
+                    '@pansari/client/firebase'; options makeAuth + verifier let the phone app plug in RN persistence
+                    and a WebView reCAPTCHA); source-only package used by web + mobile
 packages/shared     ops/riders.ts (assign/step/COD/KYC roll-up), ops/picking.ts (pick list, scan match, count variance),
                     ops/extras.ts (planPayout, checkPod, trackEstimate/simulateRiderPosition/validPing, HYGIENE_QUESTIONS/
                     validateHygiene/missingDailyChecks); ops/compliance.ts (planRecall, recalledInOrder, HSN validate/resolve/re-rate, zone validate);
@@ -47,14 +49,17 @@ apps/web            Next.js 16 static export: /, /login, /shop (+/cart, /orders,
                     /admin/*, /compliance/*, /staff (+/pick?id=, /receive, /count), /rider (+/cash, /kyc)
                     components/portal.tsx (PortalShell, `narrow` = phone app), components/phase4.tsx (KycUploader,
                     KycReviewQueue, ListingReview, AuditTable, RiderPicker), components/staff.tsx (ProductFinder)
-                    lib/data: types/demo re-export @pansari/client; firebase.ts = FirebaseDataClient
+                    lib/data: types/demo/firebase re-export @pansari/client; /recaptcha page = human check for the
+                    phone app's OTP (posts the token to the WebView)
 apps/mobile         Expo SDK 58 + Expo Router + NativeWind app for EVERY role: customer tabs at /, /owner, /staff
                     (+ /pick/[id]), /rider, /compliance, /admin; login lands by role (lib/roles.ts); shared bits in
                     components/role.tsx (RoleGate, StoreProvider, Picker sheet, Scanner, KycUploader, pickPhoto),
                     components/ops.tsx (RiderPicker, ProductFinder), components/review.tsx (KYC queue, listings,
                     audit). eas.json: preview (demo APK) / live / production. NOT a root workspace (own lockfile,
                     file: links to packages); metro.config.js watches packages + forces tslib ES build (pdf-lib);
-                    lib/polyfills.ts = Web Crypto for Hermes. Demo mode only (no RN Firebase client yet).
+                    lib/polyfills.ts = Web Crypto for Hermes. lib/live.tsx: EXPO_PUBLIC_DATA_MODE=firebase → same
+                    FirebaseDataClient (firebase JS SDK, AsyncStorage persistence, RecaptchaHost WebView →
+                    <EXPO_PUBLIC_WEB_URL>/recaptcha/). deploy.ps1 writes apps/mobile/.env; root .easignore uploads it.
 firebase/tests      rules tests (need Firestore emulator + Java)
 preview/web         single-file artifact build of apps/web (in-memory router shims)
 deploy.ps1/.cmd     Windows full deploy (Blaze): Firebase project, secrets, worker, hosting, functions
@@ -96,6 +101,9 @@ deploy.ps1/.cmd     Windows full deploy (Blaze): Firebase project, secrets, work
   firestore.get so customer + store staff can view (deploy grants the storage agent Firestore read). Rider location
   = direct write to riders/{uid}.lastLocation (rules allow); customers read it only through trackRider. Hygiene
   checks = direct Firestore writes to compliance_checks (rules validate keys/kind); compliance updates review fields.
+- First-time setup (bootstrapBusiness, BOOTSTRAP_PHONE = $OwnerPhone in deploy.ps1) makes the caller
+  super_admin (Rahul); he adds the shop owner etc. in Admin → People & roles. deploy-state.json holds
+  secrets — gitignored + easignored.
 - HSN master edits re-rate products by most specific match (8→6→4 digits); frozen online orders keep
   their computation. Zones/HSN written by callables; the audit triggers skip service-account writes.
 
@@ -138,7 +146,8 @@ Phase 4 is done on the web (phone-first pages work in a phone browser). Remainin
 2. (done) Native Expo screens for every role. Mobile click-through: `expo export --platform web`, serve
    with an SPA fallback, Playwright at 390×844 (rider on shift → Priya COD → Sunita accept/assign/pick
    → Vikram collect/start/deliver → owner receives cash) — 0 errors on 25 Nov 2026.
-3. React Native Firebase DataClient for apps/mobile, EAS build.
+3. (done) Live mode for the phone app (firebase JS SDK + WebView reCAPTCHA) and EAS profiles. Not yet
+   tried against a real project — first live APK build is in docs/GO-LIVE.md step 4.
 4. (done) Payouts, POD photo, live rider tracking, hygiene checklists — web + phone. Next ideas: payout
    provider (RazorpayX) when APIs are unlocked; background location (expo-task-manager) for riders.
-5. Deploy: Blaze plan + Rahul's sign-ins; then `firebase deploy` (new functions + indexes + rules).
+5. Deploy: follow docs/GO-LIVE.md (Rahul's sign-ins, Blaze, deploy.cmd, roles, APK).

@@ -4,7 +4,8 @@
  *
  * Only the phone number in the BOOTSTRAP_PHONE parameter can run it, and only
  * once (platform_config/bootstrap is created in the same transaction). It loads
- * the sample shop and makes the caller the shop owner (seller of vendor V1).
+ * the sample shop and makes the caller the super admin (Rahul). The super admin
+ * then adds the shop owner, staff, riders and compliance in Admin → People & roles.
  */
 import { FieldValue } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
@@ -28,7 +29,8 @@ export const bootstrapBusiness = onCall(async (req) => {
   }
   const loadSample = req.data?.loadSample !== false;
   const counts = loadSample ? await seedBusiness(db) : { stores: 0, products: 0 };
-  await adminAuth.setCustomUserClaims(a.uid, { role: 'seller', vendorId: DEMO_VENDOR.vendorId, storeIds: [] });
+  await adminAuth.setCustomUserClaims(a.uid, { role: 'super_admin' });
+  void DEMO_VENDOR; // sample data uses vendor V1; owners are added from the admin portal
   await writeAudit({ actorUid: a.uid, actorRole: 'system', action: 'platform.bootstrap', target: { collection: COL.platformConfig, id: 'bootstrap' }, after: counts });
-  return { ok: true, ...counts, note: 'Sign out and in again, or refresh, to receive the owner role.' };
+  return { ok: true, ...counts, note: 'Sign out and in again, or refresh, to receive the super admin role.' };
 });

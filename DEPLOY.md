@@ -8,7 +8,10 @@
    - enable **Phone** and **Anonymous** sign-in and click **Storage → Get started** (Claude can do these in the browser),
    - sign in to Cloudflare when the browser opens.
 4. At the end it prints your website (`https://<project>.web.app`).
-5. Open `/login`, sign in with the owner number, press **First-time setup: make me the shop owner**.
+5. Open `/login`, sign in with your (admin) number, press **First-time setup: make me the super admin**.
+6. In **People & roles**, add the shop owner's number as **Shop owner**, then staff, riders (with home store) and compliance.
+
+Phone app and the full go-live checklist: see **docs/GO-LIVE.md**.
 
 Re-running deploy.cmd is safe; it skips finished steps (see `deploy-state.json` — keep it private).
 To publish code changes later, run deploy.cmd again.

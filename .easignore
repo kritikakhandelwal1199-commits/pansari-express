@@ -1,0 +1,40 @@
+# EAS (phone app builds) uses this file INSTEAD of .gitignore when uploading the repo.
+# Same as .gitignore, except apps/mobile/.env is uploaded: it holds the Firebase *web* config
+# (public values, also in the website's JavaScript) that the live app needs. Secrets stay out.
+
+node_modules/
+dist/
+functions/lib/
+.wrangler/
+*.log
+.env
+.env.*
+!.env.example
+.dev.vars
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+service-account*.json
+out/
+
+# local secrets
+functions/.secret.local
+edge/worker/.dev.vars
+functions/deploy/
+apps/web/out/
+apps/web/.env.local
+apps/web/.env.production
+.next/
+*.tsbuildinfo
+preview/web/dist/
+preview/dist/
+.vercel/
+
+# --- EAS extras ---
+deploy-state.json
+!apps/mobile/.env
+apps/web/.next/
+firebase/
+edge/worker/
+*.apk
+*.aab

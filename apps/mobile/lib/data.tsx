@@ -1,12 +1,13 @@
 /**
  * Data layer for the phone app. In API-hold / demo mode the app runs the same
  * DemoDataClient as the web demo (shared planners, GST engine, FEFO), with its
- * state saved on the phone. When Firebase goes live, a React Native Firebase
- * client implementing the same DataClient interface drops in here.
+ * state saved on the phone. Builds with EXPO_PUBLIC_DATA_MODE=firebase use the
+ * website's FirebaseDataClient (see lib/live.tsx).
  */
 import * as React from 'react';
 import { DemoDataClient, type AppUser, type DataClient } from '@pansari/client';
 import { hydratedStorage } from './storage';
+import { createLiveClient, DATA_MODE } from './live';
 
 interface Ctx {
   client: DataClient;
@@ -28,7 +29,7 @@ export function DataProvider({ children, fallback }: { children: React.ReactNode
     let alive = true;
     void hydratedStorage().then((storage) => {
       if (!alive) return;
-      const client = new DemoDataClient({ storage, sessionStorage: memoryStorage(), noWindowSync: true });
+      const client: DataClient = DATA_MODE === 'firebase' ? createLiveClient() : new DemoDataClient({ storage, sessionStorage: memoryStorage(), noWindowSync: true });
       setState({ client, storage });
     });
     return () => {

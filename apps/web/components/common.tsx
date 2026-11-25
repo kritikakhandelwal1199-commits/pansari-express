@@ -105,8 +105,8 @@ function NotStaff({ user }: { user: AppUser }) {
     setMsg(null);
     try {
       const r = await data.bootstrap!();
-      setMsg(`Done — ${r.stores} stores and ${r.products} products loaded. Opening the portal…`);
-      setTimeout(() => window.location.assign(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/seller`), 1200);
+      setMsg(`Done — ${r.stores} stores and ${r.products} products loaded. Opening People & roles — add the shop owner next…`);
+      setTimeout(() => window.location.assign(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/admin/users`), 1200);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Setup failed');
     } finally {
@@ -123,9 +123,9 @@ function NotStaff({ user }: { user: AppUser }) {
         </Link>
         {data.bootstrap && user.role === 'customer' ? (
           <div className="mt-8 grid gap-2 rounded-2xl border border-line bg-surface p-4">
-            <p className="text-sm text-muted">New installation? The owner&apos;s number can run first-time setup once.</p>
+            <p className="text-sm text-muted">New installation? The admin number set in deploy can run first-time setup once.</p>
             <button disabled={busy} onClick={setup} className="h-11 rounded-xl bg-kum px-4 font-semibold text-kum-ink disabled:opacity-50">
-              {busy ? 'Setting up…' : 'First-time setup: make me the shop owner'}
+              {busy ? 'Setting up…' : 'First-time setup: make me the super admin'}
             </button>
             {msg ? <p className="text-sm">{msg}</p> : null}
           </div>

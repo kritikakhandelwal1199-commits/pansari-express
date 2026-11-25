@@ -206,6 +206,18 @@ NEXT_PUBLIC_FUNCTIONS_REGION=$Region
 NEXT_PUBLIC_USE_EMULATORS=false
 NEXT_PUBLIC_EDGE_URL=$($state.edgeUrl)
 "@
+# Same settings for the phone app (read by Expo / EAS at build time; see apps/mobile/README.md).
+Write-NoBom (Join-Path $Root 'apps\mobile\.env') @"
+EXPO_PUBLIC_DATA_MODE=firebase
+EXPO_PUBLIC_FIREBASE_API_KEY=$($web.apiKey)
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=$($web.authDomain)
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=$($web.projectId)
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=$($web.storageBucket)
+EXPO_PUBLIC_FIREBASE_APP_ID=$($web.appId)
+EXPO_PUBLIC_FUNCTIONS_REGION=$Region
+EXPO_PUBLIC_EDGE_URL=$($state.edgeUrl)
+EXPO_PUBLIC_WEB_URL=https://$ProjectId.web.app
+"@
 Run 'npm' @('run', 'build', '-w', '@pansari/adapters')
 Run 'npm' @('run', 'build', '-w', '@pansari/web')
 
@@ -218,4 +230,6 @@ Write-Host "Website     : https://$ProjectId.web.app" -ForegroundColor Green
 Write-Host "Edge API    : $($state.edgeUrl)/health" -ForegroundColor Green
 Write-Host ''
 Write-Host "Next: open https://$ProjectId.web.app/login, sign in with $OwnerPhone, then press" -ForegroundColor Green
-Write-Host "'First-time setup: make me the shop owner'. It loads the sample shop and opens the seller portal." -ForegroundColor Green
+Write-Host "'First-time setup: make me the super admin'. It loads the sample shop and opens People & roles," -ForegroundColor Green
+Write-Host "where you add the shop owner's number as Shop owner." -ForegroundColor Green
+Write-Host "Phone app settings were written to apps\mobile\.env - see docs\GO-LIVE.md to build the Android app." -ForegroundColor Green

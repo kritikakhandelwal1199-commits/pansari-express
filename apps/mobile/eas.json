@@ -1,20 +1,37 @@
 {
-  "cli": { "version": ">= 16.0.0", "appVersionSource": "local" },
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "local"
+  },
   "build": {
     "preview": {
       "distribution": "internal",
-      "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_DATA_MODE": "demo" }
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_DATA_MODE": "demo"
+      }
     },
     "live": {
       "distribution": "internal",
-      "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_DATA_MODE": "firebase" }
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_DATA_MODE": "firebase"
+      }
     },
     "production": {
-      "android": { "buildType": "app-bundle" },
-      "env": { "EXPO_PUBLIC_DATA_MODE": "firebase" }
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_DATA_MODE": "firebase"
+      }
     }
   },
-  "submit": { "production": {} }
+  "submit": {
+    "production": {}
+  }
 }
