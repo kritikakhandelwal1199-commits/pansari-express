@@ -1,0 +1,30 @@
+# Runs the Firestore + Storage security-rules tests against the Firebase emulators.
+# No Firebase project or login needed (uses the offline "demo-pansari" project).
+name: Security rules tests
+
+on:
+  push:
+    branches: [main]
+    paths: ['firestore.rules', 'storage.rules', 'firebase/**', 'firebase.json', '.github/workflows/rules.yml']
+  workflow_dispatch:
+
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ hashFiles('package-lock.json') }}
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w @pansari/shared
+      - run: npm run test:rules
