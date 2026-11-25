@@ -3,7 +3,7 @@ import { RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { nextForwardStatus, operatorCanCancel, riderHasPicked, type OrderStatus } from '@pansari/shared';
 import type { OrderRow } from '@pansari/client';
-import { RiderPicker } from '@/components/ops';
+import { PodPhoto, RiderPicker, RiderTracker } from '@/components/ops';
 import { Empty, fmtTime, Seg, Sheet, StoreSwitch, useStore, Who } from '@/components/role';
 import { Badge, Button, Card, ErrorText, Field, rs } from '@/components/ui';
 import { errMsg, useData, useResource } from '@/lib/data';
@@ -83,6 +83,8 @@ export default function OwnerOrders() {
             {o.cancelReason ? <Text className="text-sm font-semibold text-danger">{o.cancelReason}</Text> : null}
             {withRider ? <Text className="text-sm font-semibold text-ink">{o.status === 'DELIVERED' ? `Delivered by ${o.riderName ?? 'the rider'}` : `${o.riderName ?? 'Rider'} has this order`}</Text> : null}
             <RiderPicker order={o} onDone={orders.reload} />
+            <RiderTracker order={o} />
+            <PodPhoto order={o} />
             <View className="flex-row gap-2">
               {next && ACTION[next] ? (
                 <Button className="flex-1" busy={busy === o.orderId} title={ACTION[next]!} onPress={() => (next === 'DELIVERED' ? (setErr(null), setText(''), setSheet({ o, kind: 'otp' })) : void move(o, next))} />

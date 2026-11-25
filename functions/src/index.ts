@@ -195,3 +195,4 @@ export { commitSale, getInvoicePdf } from './sales/commitSale.js';
 export { bootstrapBusiness } from './setup/bootstrap.js';
 export { placeOrder, cancelOrder, advanceOrder, topUpWallet, createSupportTicket, setTicketStatus } from './orders/onlineOrders.js';
 export { listUsers, saveZone, upsertHsn, saveRiderProfile, setRiderShift, assignRider, receiveCodCash, onKycUploaded, reviewKyc, createRecall, completeRecall } from './ops/phase4.js';
+export { payRider, attachPod, trackRider } from './ops/extras.js';

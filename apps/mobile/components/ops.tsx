@@ -1,8 +1,8 @@
 /** Order + stock helpers shared by the owner and staff apps. */
 import * as React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Linking, Pressable, Text, View } from 'react-native';
 import type { OrderRow, ProductInfo } from '@pansari/client';
-import { Picker, Scanner } from '@/components/role';
+import { DocImage, Picker, Scanner } from '@/components/role';
 import { ErrorText, Field, rs } from '@/components/ui';
 import { errMsg, useData, useResource } from '@/lib/data';
 
@@ -84,6 +84,55 @@ export function ProductFinder({ products, onPick }: { products: ProductInfo[]; o
           else setMiss(c);
         }}
       />
+    </View>
+  );
+}
+
+/* ------------------------------------------------------------------ live rider tracking + delivery photo */
+
+export function RiderTracker({ order }: { order: OrderRow }) {
+  const { client } = useData();
+  const on = !!order.riderUid && (order.status === 'HANDED_TO_RIDER' || order.status === 'OUT_FOR_DELIVERY');
+  const fix = useResource(() => (on ? client.trackRider(order.orderId) : Promise.resolve(null)), [client, order.orderId, on, order.status]);
+  React.useEffect(() => {
+    if (!on) return;
+    const t = setInterval(fix.reload, 15_000);
+    return () => clearInterval(t);
+  }, [on]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!on) return null;
+  const f = fix.data;
+  const dest = order.deliveryAddress?.location;
+  const ago = f ? Math.max(0, Math.round((Date.now() - f.atMs) / 1000)) : 0;
+  return (
+    <View className="gap-2 rounded-2xl border border-leaf bg-[#eef7ec] p-3">
+      <Text className="font-bold text-ink">{order.riderName ?? 'Your rider'} {order.status === 'HANDED_TO_RIDER' ? 'has collected your order' : 'is on the way'}</Text>
+      {f ? (
+        <Text className="text-sm text-ink">
+          <Text className="font-bold">{f.distanceKm.toFixed(1)} km</Text> away · about <Text className="font-bold">{f.etaMinutes} min</Text> ·{' '}
+          {f.simulated ? 'estimated (demo)' : f.live ? `updated ${ago < 60 ? `${ago}s` : `${Math.round(ago / 60)} min`} ago` : 'last known spot'}
+        </Text>
+      ) : (
+        <Text className="text-sm text-muted">{fix.loading ? 'Finding the rider…' : 'Location not shared yet.'}</Text>
+      )}
+      <View className="flex-row gap-2">
+        {f && dest ? <Pressable onPress={() => void Linking.openURL(`https://www.google.com/maps/dir/?api=1&origin=${f.lat},${f.lng}&destination=${dest.lat},${dest.lng}`)} className="h-10 flex-1 items-center justify-center rounded-xl border border-line bg-surface"><Text className="font-bold text-ink">Open map</Text></Pressable> : null}
+        {order.riderPhone ? <Pressable onPress={() => void Linking.openURL(`tel:${order.riderPhone}`)} className="h-10 flex-1 items-center justify-center rounded-xl border border-line bg-surface"><Text className="font-bold text-ink">Call rider</Text></Pressable> : null}
+      </View>
+    </View>
+  );
+}
+
+export function PodPhoto({ order }: { order: OrderRow }) {
+  const { client } = useData();
+  const [open, setOpen] = React.useState(false);
+  const url = useResource(() => (open ? client.podUrl(order.orderId) : Promise.resolve(null)), [client, order.orderId, open]);
+  if (!order.hasPod) return null;
+  return (
+    <View className="gap-2">
+      <Pressable onPress={() => setOpen((o) => !o)} className="h-10 items-center justify-center rounded-xl border border-line bg-surface">
+        <Text className="font-bold text-ink">{open ? 'Hide delivery photo' : 'See delivery photo'}</Text>
+      </Pressable>
+      {open ? <DocImage uri={url.loading ? undefined : url.data} /> : null}
     </View>
   );
 }

@@ -17,3 +17,4 @@ export * from './support/chatbot.js';
 export * from './ops/riders.js';
 export * from './ops/picking.js';
 export * from './ops/compliance.js';
+export * from './ops/extras.js';

@@ -9,6 +9,7 @@ export default function RiderCash() {
   const data = useData();
   const me = useResource(() => data.myRider(), [data]);
   const ledger = useResource(() => data.riderCash(), [data]);
+  const payouts = useResource(() => data.listPayouts(), [data]);
   const r = me.data;
   return (
     <div className="grid gap-3">
@@ -30,6 +31,22 @@ export default function RiderCash() {
           </Card>
         </div>
       )}
+      <h2 className="mt-2 text-lg font-bold">Payments to you</h2>
+      {payouts.data && !payouts.data.length ? <p className="text-sm text-muted">No payments yet. The shop pays your earnings by UPI, bank or cash and records it here.</p> : null}
+      <ul className="grid gap-2">
+        {(payouts.data ?? []).map((p) => (
+          <li key={p.id} className="flex items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm">
+            <span>
+              <b>Paid by {p.method === 'BANK' ? 'bank transfer' : p.method === 'UPI' ? 'UPI' : 'cash'}</b>
+              <span className="num block text-[12px] text-muted">
+                {fmtTime(p.atMs)}
+                {p.reference ? ` · ref ${p.reference}` : ''}
+              </span>
+            </span>
+            <span className="num font-bold text-leaf">+{rs(p.amount)}</span>
+          </li>
+        ))}
+      </ul>
       <h2 className="mt-2 text-lg font-bold">Cash ledger</h2>
       {ledger.loading && !ledger.data ? <Skeleton className="h-20 rounded-2xl" /> : null}
       {ledger.data && !ledger.data.length ? <EmptyState title="No cash yet">Cash-on-delivery money you collect and hand in is listed here.</EmptyState> : null}

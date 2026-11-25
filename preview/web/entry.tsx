@@ -41,6 +41,8 @@ import StaffQueue from '@/app/staff/page';
 import StaffPick from '@/app/staff/pick/page';
 import StaffReceive from '@/app/staff/receive/page';
 import StaffCount from '@/app/staff/count/page';
+import StaffHygiene from '@/app/staff/hygiene/page';
+import ComplianceHygiene from '@/app/compliance/hygiene/page';
 import RiderLayout from '@/app/rider/layout';
 import RiderHome from '@/app/rider/page';
 import RiderCash from '@/app/rider/cash/page';
@@ -64,8 +66,8 @@ const SELLER: Record<string, React.ComponentType> = {
 type Section = { prefix: string; Layout: React.ComponentType<{ children: React.ReactNode }>; home: React.ComponentType; pages: Record<string, React.ComponentType> };
 const PHASE4: Section[] = [
   { prefix: '/admin', Layout: AdminLayout, home: AdminHome, pages: { '/admin/users': AdminUsers, '/admin/zones': AdminZones, '/admin/hsn': AdminHsn, '/admin/review': AdminReview, '/admin/audit': AdminAudit } },
-  { prefix: '/compliance', Layout: ComplianceLayout, home: ComplianceKyc, pages: { '/compliance/listings': ComplianceListings, '/compliance/recalls': ComplianceRecalls, '/compliance/audit': ComplianceAudit } },
-  { prefix: '/staff', Layout: StaffLayout, home: StaffQueue, pages: { '/staff/pick': StaffPick, '/staff/receive': StaffReceive, '/staff/count': StaffCount } },
+  { prefix: '/compliance', Layout: ComplianceLayout, home: ComplianceKyc, pages: { '/compliance/listings': ComplianceListings, '/compliance/recalls': ComplianceRecalls, '/compliance/audit': ComplianceAudit, '/compliance/hygiene': ComplianceHygiene } },
+  { prefix: '/staff', Layout: StaffLayout, home: StaffQueue, pages: { '/staff/pick': StaffPick, '/staff/receive': StaffReceive, '/staff/count': StaffCount, '/staff/hygiene': StaffHygiene } },
   { prefix: '/rider', Layout: RiderLayout, home: RiderHome, pages: { '/rider/cash': RiderCash, '/rider/kyc': RiderKyc } },
 ];
 const SHOP: Record<string, React.ComponentType> = {

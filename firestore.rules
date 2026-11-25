@@ -350,6 +350,9 @@ service cloud.firestore {
     // Hygiene / cold-chain checklists: staff submit, compliance reviews.
     match /compliance_checks/{checkId} {
       allow create: if operatesStore(request.resource.data.storeId, request.resource.data.vendorId)
+        && request.resource.data.keys().hasOnly(['storeId', 'vendorId', 'kind', 'answers', 'temperatureC', 'flagged', 'submittedBy', 'submittedByName', 'submittedAt', 'reviewStatus', 'reviewerUid', 'reviewNote'])
+        && request.resource.data.kind in ['HYGIENE_DAILY', 'COLD_CHAIN', 'PEST_CONTROL', 'EXPIRY_SWEEP']
+        && request.resource.data.flagged is bool
         && request.resource.data.submittedBy == request.auth.uid
         && request.resource.data.reviewStatus == 'PENDING'
         && request.resource.data.reviewerUid == null

@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { ClipboardCheck, PackageCheck, PackagePlus, ScanBarcode } from 'lucide-react';
+import { ClipboardCheck, PackageCheck, PackagePlus, ScanBarcode, SprayCan } from 'lucide-react';
 import { RequireStaff, useSelectedStore } from '@/components/common';
 import { PortalShell } from '@/components/portal';
 import { StaffContext } from '@/components/staff';
@@ -11,6 +11,7 @@ const NAV = [
   { href: '/staff', label: 'Pick', icon: PackageCheck, exact: true },
   { href: '/staff/receive', label: 'Receive', icon: PackagePlus },
   { href: '/staff/count', label: 'Count', icon: ClipboardCheck },
+  { href: '/staff/hygiene', label: 'Hygiene', icon: SprayCan },
   { href: '/pos', label: 'POS', icon: ScanBarcode },
 ];
 

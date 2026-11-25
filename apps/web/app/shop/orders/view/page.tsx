@@ -7,6 +7,7 @@ import { Check, FileText, KeyRound, Loader2, MapPin, PartyPopper, XCircle } from
 import { customerCanCancel, ONLINE_FLOW } from '@pansari/shared';
 import { ErrorNote, useToast } from '@/components/common';
 import { useShop } from '@/components/shop';
+import { PodPhoto, RiderTracker } from '@/components/phase4';
 import { Badge, Button, Card, CardTitle, Dialog, DialogContent, Field, Input, Skeleton } from '@/components/ui';
 import { useData, useResource } from '@/lib/data/provider';
 import { ORDER_STATUS, PAYMENT_LABEL } from '@/lib/labels';
@@ -95,6 +96,8 @@ function OrderView() {
           </div>
         ) : null}
 
+        <RiderTracker order={o} />
+
         {closed ? (
           <div className="flex items-start gap-2 rounded-xl bg-danger/8 p-3 text-sm">
             <XCircle className="mt-0.5 size-4 text-danger" />
@@ -123,6 +126,7 @@ function OrderView() {
         )}
 
         <div className="flex flex-wrap gap-2">
+          <PodPhoto orderId={o.orderId} hasPod={o.hasPod} />
           {o.invoiceId ? (
             <Button variant="outline" onClick={invoice}>
               <FileText className="size-4" /> GST invoice {o.invoiceNo}

@@ -41,9 +41,9 @@ import {
 } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions, httpsCallable, type Functions } from 'firebase/functions';
 import { connectStorageEmulator, getDownloadURL, getStorage, ref as storageRef, uploadBytes, type FirebaseStorage } from 'firebase/storage';
-import { buildPickList, COL, inventoryDocId, isRole, isValidPincode, kycFileName, randomId, RIDER_KYC_DOCS, TEMP_CART_TTL_SECONDS, VENDOR_KYC_DOCS, type BatchState, type HsnInput, type InvoiceComputation, type KycStatus, type OrderStatus, type PlannedLine, type RiderVehicle, type ZoneInput } from '@pansari/shared';
+import { buildPickList, COL, inventoryDocId, isRole, isValidPincode, kycFileName, randomId, RIDER_KYC_DOCS, TEMP_CART_TTL_SECONDS, VENDOR_KYC_DOCS, type BatchState, type HsnInput, type InvoiceComputation, type KycStatus, type OrderStatus, type PlannedLine, type RiderVehicle, type ZoneInput, validateHygiene, validPing, type PayoutMethod, type RiderFix } from '@pansari/shared';
 import { LocalGeoProvider } from '@pansari/adapters';
-import type { Address, AddressInput, AdjustInput, AppUser, CustomerProfile, DataClient, DeliveryCheck, GuestCart, HsnRow, InventoryRow, InvoiceRow, InwardInput, LedgerRow, OrderRow, PlaceOrderInput, ProductInfo, ProductInput, SaleInput, SaleResult, StoreInfo, TicketInput, TicketRow, WalletTxn, AuditRow, KycDocRow, KycUploadInput, PickTask, RecallInput, RecallResult, RecallRow, RiderCashRow, RiderProfile, RoleInput, UserRow, ZoneRow } from './types';
+import type { Address, AddressInput, AdjustInput, AppUser, CustomerProfile, DataClient, DeliveryCheck, GuestCart, HsnRow, InventoryRow, InvoiceRow, InwardInput, LedgerRow, OrderRow, PlaceOrderInput, ProductInfo, ProductInput, SaleInput, SaleResult, StoreInfo, TicketInput, TicketRow, WalletTxn, AuditRow, KycDocRow, KycUploadInput, PickTask, RecallInput, RecallResult, RecallRow, RiderCashRow, PayoutRow, HygieneInput, HygieneRow, PhotoInput, RiderProfile, RoleInput, UserRow, ZoneRow } from './types';
 import { DataError } from './types';
 
 export interface FirebaseClientConfig {
@@ -613,6 +613,7 @@ export class FirebaseDataClient implements DataClient {
       riderUid: d.riderUid ?? null,
       riderName: d.riderUid ? (await this.riderName(d.riderUid)) : null,
       riderPhone: null,
+      hasPod: !!d.podPath,
     };
   }
   private riderNames = new Map<string, string | null>();
@@ -777,6 +778,102 @@ export class FirebaseDataClient implements DataClient {
   }
   receiveCodCash(storeId: string, riderUid: string, amount: number) {
     return this.call<{ storeId: string; riderUid: string; amount: number }, { codCashInHand: number }>(this.staff, 'receiveCodCash')({ storeId, riderUid, amount });
+  }
+
+  /* ---------------------------------------------- Phase 4 extras · payouts, POD, tracking */
+  payRider(riderUid: string, amount: number, method: PayoutMethod, reference: string) {
+    return this.call<{ riderUid: string; amount: number; method: string; reference: string }, { earningsBalance: number }>(this.staff, 'payRider')({ riderUid, amount, method, reference });
+  }
+  async listPayouts(riderUid?: string): Promise<PayoutRow[]> {
+    const u = this.user();
+    const base = collection(this.staff.db, COL.payouts);
+    const q =
+      u.role === 'rider'
+        ? query(base, where('riderUid', '==', u.uid), orderBy('at', 'desc'), limit(100))
+        : u.role === 'super_admin'
+          ? riderUid
+            ? query(base, where('riderUid', '==', riderUid), orderBy('at', 'desc'), limit(100))
+            : query(base, orderBy('at', 'desc'), limit(100))
+          : riderUid
+            ? query(base, where('vendorId', '==', u.vendorId ?? '-'), where('riderUid', '==', riderUid), orderBy('at', 'desc'), limit(100))
+            : query(base, where('vendorId', '==', u.vendorId ?? '-'), orderBy('at', 'desc'), limit(100));
+    return (await getDocs(q)).docs.map((d) => ({ id: d.id, riderUid: d.get('riderUid'), riderName: d.get('riderName') ?? null, amount: d.get('amount'), method: d.get('method'), reference: d.get('reference') ?? '', paidBy: d.get('paidBy'), atMs: ms(d.get('at')) ?? 0 }));
+  }
+  async attachPod(orderId: string, photo: PhotoInput) {
+    const u = this.user();
+    if (photo.file.size > 5 * 1024 * 1024) throw new DataError('Photo must be under 5 MB');
+    const ext = (/\.([A-Za-z0-9]{1,5})$/.exec(photo.fileName)?.[1] ?? 'jpg').toLowerCase();
+    const path = `pod/${u.uid}/${orderId}/door-${Date.now()}.${ext}`;
+    try {
+      await uploadBytes(storageRef(this.staff.storage, path), photo.file, { contentType: photo.file.type || 'image/jpeg' });
+      await this.call(this.staff, 'attachPod')({ orderId, storagePath: path });
+    } catch (e) {
+      fnError(e);
+    }
+  }
+  async podUrl(orderId: string) {
+    const s = await getDoc(doc(this.staff.db, COL.orders, orderId));
+    const path = s.get('podPath') as string | undefined;
+    return path ? getDownloadURL(storageRef(this.staff.storage, path)).catch(() => null) : null;
+  }
+  async pingRiderLocation(loc: { lat: number; lng: number }) {
+    const u = this.user();
+    const p = validPing(loc);
+    if (!p) throw new DataError('Location not available');
+    await updateDoc(doc(this.staff.db, COL.riders, u.uid), { lastLocation: p, lastSeenAt: serverTimestamp(), isOnline: true }).catch(() => undefined);
+  }
+  trackRider(orderId: string) {
+    return this.call<{ orderId: string }, RiderFix | null>(this.staff, 'trackRider')({ orderId });
+  }
+
+  /* ---------------------------------------------- Phase 4 extras · hygiene checklists */
+  private hygieneFrom(id: string, d: DocumentData, storeName: string | null): HygieneRow {
+    const answers = (d.answers ?? []) as HygieneRow['answers'];
+    const t = d.temperatureC ?? null;
+    return { id, storeId: d.storeId, kind: d.kind, answers, temperatureC: t, storeName, submittedBy: d.submittedBy, submittedByName: d.submittedByName ?? null, submittedMs: ms(d.submittedAt) ?? 0, flagged: d.flagged === true, reviewStatus: d.reviewStatus, reviewNote: d.reviewNote ?? null };
+  }
+  async submitHygieneCheck(i: HygieneInput) {
+    const u = this.user();
+    const store = await this.getStore(i.storeId);
+    if (!store) throw new DataError('Store not found');
+    let v;
+    try {
+      v = validateHygiene(i.kind, i.answers, i.temperatureC);
+    } catch (e) {
+      throw new DataError(e instanceof Error ? e.message : 'Check the answers');
+    }
+    const ref = doc(collection(this.staff.db, COL.complianceChecks));
+    const row = { storeId: i.storeId, vendorId: store.vendorId, kind: v.kind, answers: v.answers, temperatureC: v.temperatureC, flagged: v.flag, submittedBy: u.uid, submittedByName: u.displayName ?? null, submittedAt: serverTimestamp(), reviewStatus: 'PENDING', reviewerUid: null, reviewNote: null };
+    try {
+      await setDoc(ref, row);
+    } catch (e) {
+      fnError(e);
+    }
+    return this.hygieneFrom(ref.id, { ...row, submittedAt: Timestamp.now() }, store.name);
+  }
+  async listHygieneChecks(opts: { storeId?: string; days?: number; flaggedOnly?: boolean } = {}) {
+    const u = this.user();
+    const since = Timestamp.fromMillis(Date.now() - (opts.days ?? 30) * 86_400_000);
+    const base = collection(this.staff.db, COL.complianceChecks);
+    const stores = await this.listStores();
+    const name = (id: string) => stores.find((s) => s.storeId === id)?.name ?? null;
+    let q;
+    if (u.role === 'compliance' || u.role === 'super_admin') q = opts.storeId ? query(base, where('storeId', '==', opts.storeId), where('submittedAt', '>=', since), orderBy('submittedAt', 'desc'), limit(300)) : query(base, where('submittedAt', '>=', since), orderBy('submittedAt', 'desc'), limit(300));
+    else {
+      const sid = opts.storeId ?? stores[0]?.storeId ?? '-';
+      q = query(base, where('storeId', '==', sid), where('vendorId', '==', u.vendorId ?? '-'), where('submittedAt', '>=', since), orderBy('submittedAt', 'desc'), limit(300));
+    }
+    const rows = (await getDocs(q)).docs.map((d) => this.hygieneFrom(d.id, d.data(), name(d.get('storeId'))));
+    return opts.flaggedOnly ? rows.filter((r) => r.flagged) : rows;
+  }
+  async reviewHygieneCheck(id: string, status: 'OK' | 'ACTION_REQUIRED', note?: string) {
+    const u = this.user();
+    if (status === 'ACTION_REQUIRED' && (!note || note.trim().length < 3)) throw new DataError('Tell the store what to fix');
+    try {
+      await updateDoc(doc(this.staff.db, COL.complianceChecks, id), { reviewStatus: status, reviewerUid: u.uid, reviewNote: note?.trim().slice(0, 200) || null });
+    } catch (e) {
+      fnError(e);
+    }
   }
 
   /* ---------------------------------------------- Phase 4 · compliance */

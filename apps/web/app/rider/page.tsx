@@ -1,8 +1,8 @@
 'use client';
 import * as React from 'react';
 import Link from 'next/link';
-import { Banknote, KeyRound, Loader2, MapPin, Navigation, Phone, Power, RefreshCw, Store } from 'lucide-react';
-import { riderNextStatus, RIDER_COD_CASH_LIMIT } from '@pansari/shared';
+import { Banknote, Camera, Check, KeyRound, Loader2, MapPin, Navigation, Phone, Power, RefreshCw, Store } from 'lucide-react';
+import { riderNextStatus, RIDER_COD_CASH_LIMIT, RIDER_PING_INTERVAL_MS } from '@pansari/shared';
 import { ErrorNote, useToast } from '@/components/common';
 import { KYC_STATUS } from '@/components/phase4';
 import { Badge, Button, Card, Dialog, DialogContent, EmptyState, Field, Input, Skeleton } from '@/components/ui';
@@ -40,6 +40,41 @@ export default function RiderHome() {
   const r = me.data;
   const list = orders.data ?? [];
   const live = list.filter((o) => !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(o.status));
+  const carrying = !!r?.isOnline && live.some((o) => o.status === 'HANDED_TO_RIDER' || o.status === 'OUT_FOR_DELIVERY');
+
+  // While carrying orders, share location so the customer can see the rider on the way.
+  React.useEffect(() => {
+    if (!carrying) return;
+    const send = () => void here().then((p) => (p ? data.pingRiderLocation(p).catch(() => undefined) : undefined));
+    send();
+    const t = setInterval(send, RIDER_PING_INTERVAL_MS);
+    return () => clearInterval(t);
+  }, [carrying]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function pod(o: OrderRow, f: File | undefined) {
+    if (!f) return;
+    setBusy(`pod-${o.orderId}`);
+    try {
+      await data.attachPod(o.orderId, { file: f, fileName: f.name });
+      toast({ tone: 'good', text: 'Delivery photo saved' });
+      orders.reload();
+    } catch (e) {
+      toast({ tone: 'bad', text: errMsg(e) });
+    } finally {
+      setBusy(null);
+    }
+  }
+  const PodButton = ({ o }: { o: OrderRow }) =>
+    o.hasPod ? (
+      <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-leaf">
+        <Check className="size-4" /> Photo added
+      </span>
+    ) : (
+      <label className="inline-flex h-9 w-fit cursor-pointer items-center gap-2 rounded-xl border border-line bg-surface px-3 text-[13px] font-semibold">
+        {busy === `pod-${o.orderId}` ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />} Add delivery photo
+        <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" onChange={(e) => void pod(o, e.target.files?.[0])} />
+      </label>
+    );
   const done = list.filter((o) => o.status === 'DELIVERED');
   const home = stores.data?.find((s) => s.storeId === r?.homeStoreId);
 
@@ -105,6 +140,7 @@ export default function RiderHome() {
             {r.isOnline ? 'Go off shift' : 'Go on shift'}
           </Button>
         </div>
+        {carrying ? <p className="flex items-center gap-2 text-[13px] font-semibold text-leaf"><MapPin className="size-4" /> Sharing your location with customers while you carry orders</p> : null}
         {r.kycStatus !== 'VERIFIED' ? (
           <p className="text-sm">
             {r.kycStatus === 'UNDER_REVIEW' ? 'Your documents are with the compliance team. You can go on shift once they are verified.' : 'Upload your driving licence, vehicle RC and masked Aadhaar to start delivering.'}{' '}
@@ -196,6 +232,7 @@ export default function RiderHome() {
                 </li>
               ))}
             </ul>
+            {o.status === 'OUT_FOR_DELIVERY' ? <PodButton o={o} /> : null}
             {o.status === 'ACCEPTED' || o.status === 'PICKING' ? <p className="text-sm font-semibold text-muted">The store is packing this order. Head to {o.storeName}.</p> : null}
             {next ? (
               <Button size="lg" variant={next === 'DELIVERED' ? 'leaf' : 'default'} disabled={busy === o.orderId} onClick={() => (next === 'DELIVERED' ? (setErr(null), setOtp(''), setDeliver(o)) : step(o))}>
@@ -211,11 +248,14 @@ export default function RiderHome() {
         <>
           <h2 className="mt-2 text-lg font-bold">Delivered today</h2>
           {done.map((o) => (
-            <div key={o.orderId} className="flex items-center justify-between rounded-xl border border-line bg-surface px-3 py-2 text-sm">
-              <span className="num">
-                #{o.orderId} · {fmtTime(o.statusHistory.at(-1)?.at ?? o.placedMs)}
-              </span>
-              <span className="num font-bold">{o.payment.method === 'COD' ? `${rs(o.grandTotal)} cash` : 'paid online'}</span>
+            <div key={o.orderId} className="grid gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="num">
+                  #{o.orderId} · {fmtTime(o.statusHistory.at(-1)?.at ?? o.placedMs)}
+                </span>
+                <span className="num font-bold">{o.payment.method === 'COD' ? `${rs(o.grandTotal)} cash` : 'paid online'}</span>
+              </div>
+              <PodButton o={o} />
             </div>
           ))}
         </>

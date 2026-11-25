@@ -132,7 +132,7 @@ export function Seg<T extends string>({ value, options, onChange }: { value: T; 
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
       {options.map((o) => (
-        <Pressable key={o.value} onPress={() => onChange(o.value)} className={`h-9 justify-center rounded-full px-3.5 ${o.value === value ? 'bg-kum' : 'border border-line bg-surface'}`}>
+        <Pressable key={o.value} accessibilityRole="button" accessibilityState={{ selected: o.value === value }} onPress={() => onChange(o.value)} className={`h-9 justify-center rounded-full px-3.5 ${o.value === value ? 'bg-kum' : 'border border-line bg-surface'}`}>
           <Text className={`text-sm font-bold ${o.value === value ? 'text-white' : 'text-ink'}`}>{o.label}</Text>
         </Pressable>
       ))}

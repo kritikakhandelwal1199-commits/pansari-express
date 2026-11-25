@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Bike, KeyRound, Loader2, MapPin, Phone, RefreshCw } from 'lucide-react';
 import { nextForwardStatus, operatorCanCancel, riderHasPicked, type OrderStatus } from '@pansari/shared';
-import { RiderPicker } from '@/components/phase4';
+import { PodPhoto, RiderPicker, RiderTracker } from '@/components/phase4';
 import { ErrorNote, useToast } from '@/components/common';
 import { PageHead, useSeller } from '@/components/seller';
 import { Badge, Button, Card, Dialog, DialogContent, EmptyState, Field, Input, Segmented, Skeleton } from '@/components/ui';
@@ -130,6 +130,12 @@ export default function OnlineOrdersPage() {
                 ) : null}
               </div>
               <RiderPicker order={o} storeId={storeId} onDone={orders.reload} />
+              <RiderTracker order={o} />
+              {o.hasPod ? (
+                <div>
+                  <PodPhoto orderId={o.orderId} hasPod />
+                </div>
+              ) : null}
               {next || (operatorCanCancel(o.status) && !withRider) ? (
                 <div className="flex flex-wrap gap-2">
                   {next ? (

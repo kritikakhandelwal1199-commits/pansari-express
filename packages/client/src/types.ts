@@ -7,7 +7,7 @@
  * Two independent sessions exist side by side: the staff session (seller portal + POS)
  * and the walk-in guest session (store QR storefront).
  */
-import type { BatchState, ComplianceStatus, GstSlab, HsnInput, InvoiceComputation, KycDocType, KycStatus, OnlinePaymentMethod, OrderStatus, PaymentMethod, PaymentStatus, PickLine, RiderVehicle, Role, SalesChannel, StockMovement, StoreType, TaxType, TicketCategory, Uqc, ZoneInput } from '@pansari/shared';
+import type { BatchState, ComplianceStatus, GstSlab, HsnInput, InvoiceComputation, KycDocType, KycStatus, OnlinePaymentMethod, OrderStatus, PaymentMethod, PaymentStatus, PickLine, RiderVehicle, Role, SalesChannel, StockMovement, StoreType, TaxType, TicketCategory, Uqc, ZoneInput, HygieneAnswer, HygieneKind, PayoutMethod, RiderFix } from '@pansari/shared';
 
 export interface AppUser {
   uid: string;
@@ -262,6 +262,8 @@ export interface OrderRow {
   riderUid?: string | null;
   riderName?: string | null;
   riderPhone?: string | null;
+  /** Rider attached a proof-of-delivery photo. */
+  hasPod?: boolean;
 }
 
 export interface WalletTxn {
@@ -431,6 +433,43 @@ export interface PickTask {
   lines: PickLine[];
 }
 
+export interface PayoutRow {
+  id: string;
+  riderUid: string;
+  riderName: string | null;
+  amount: number;
+  method: PayoutMethod;
+  reference: string;
+  paidBy: string;
+  atMs: number;
+}
+
+export interface HygieneInput {
+  storeId: string;
+  kind: HygieneKind;
+  answers: HygieneAnswer[];
+  temperatureC: number | null;
+}
+
+export interface HygieneRow extends HygieneInput {
+  id: string;
+  storeName: string | null;
+  submittedBy: string;
+  submittedByName: string | null;
+  submittedMs: number;
+  /** Any "no" answer or temperature out of range. */
+  flagged: boolean;
+  reviewStatus: 'PENDING' | 'OK' | 'ACTION_REQUIRED';
+  reviewNote: string | null;
+}
+
+export interface PhotoInput {
+  file: Blob;
+  fileName: string;
+  /** Phone app: small data: URL (see KycUploadInput.preview). */
+  preview?: string;
+}
+
 export interface DataClient {
   readonly mode: 'demo' | 'firebase';
 
@@ -535,6 +574,20 @@ export interface DataClient {
   listStoreRiders(storeId: string): Promise<RiderProfile[]>;
   assignRider(orderId: string, riderUid: string | null): Promise<void>;
   receiveCodCash(storeId: string, riderUid: string, amount: number): Promise<{ codCashInHand: number }>;
+
+  /* Phase 4 extras · payouts, proof of delivery, live tracking */
+  payRider(riderUid: string, amount: number, method: PayoutMethod, reference: string): Promise<{ earningsBalance: number }>;
+  listPayouts(riderUid?: string): Promise<PayoutRow[]>;
+  attachPod(orderId: string, photo: PhotoInput): Promise<void>;
+  podUrl(orderId: string): Promise<string | null>;
+  pingRiderLocation(loc: { lat: number; lng: number }): Promise<void>;
+  /** Customer (or the store) sees where the rider is while the order is with them. */
+  trackRider(orderId: string): Promise<RiderFix | null>;
+
+  /* Phase 4 extras · hygiene checklists */
+  submitHygieneCheck(input: HygieneInput): Promise<HygieneRow>;
+  listHygieneChecks(opts?: { storeId?: string; days?: number; flaggedOnly?: boolean }): Promise<HygieneRow[]>;
+  reviewHygieneCheck(id: string, status: 'OK' | 'ACTION_REQUIRED', note?: string): Promise<void>;
 
   /* Phase 4 · compliance */
   listKycDocs(opts?: { status?: KycStatus | 'ALL' }): Promise<KycDocRow[]>;

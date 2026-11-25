@@ -73,13 +73,24 @@ import {
   validateHsn,
   validateZone,
   VENDOR_KYC_DOCS,
+  checkPod,
+  ExtrasError,
+  haversineMeters,
+  planPayout,
+  simulateRiderPosition,
+  TRACKABLE,
+  trackEstimate,
+  validateHygiene,
+  validPing,
+  type PayoutMethod,
+  type RiderFix,
   type HsnInput,
   type KycStatus,
   type RiderVehicle,
   type ZoneInput,
 } from '@pansari/shared';
 import { LocalGeoProvider, MockGstProvider } from '@pansari/adapters';
-import type { Address, AddressInput, AdjustInput, AppUser, AuditRow, CustomerProfile, DataClient, DeliveryCheck, GuestCart, HsnRow, InventoryRow, InvoiceRow, InwardInput, KycDocRow, KycUploadInput, LedgerRow, OrderRow, PickTask, PlaceOrderInput, ProductInfo, ProductInput, RecallInput, RecallResult, RecallRow, RiderCashRow, RiderProfile, RoleInput, SaleInput, SaleResult, StoreInfo, TicketInput, TicketRow, UserRow, WalletTxn, ZoneRow } from './types';
+import type { Address, AddressInput, AdjustInput, AppUser, AuditRow, CustomerProfile, DataClient, DeliveryCheck, GuestCart, HsnRow, InventoryRow, InvoiceRow, InwardInput, KycDocRow, KycUploadInput, LedgerRow, OrderRow, PickTask, PlaceOrderInput, ProductInfo, ProductInput, RecallInput, RecallResult, RecallRow, RiderCashRow, PayoutRow, HygieneInput, HygieneRow, PhotoInput, RiderProfile, RoleInput, SaleInput, SaleResult, StoreInfo, TicketInput, TicketRow, UserRow, WalletTxn, ZoneRow } from './types';
 import { DataError } from './types';
 
 const KEY = 'pansari-demo-v3';
@@ -128,6 +139,15 @@ interface OrderRec {
   otpHash: string;
   otp: string; // demo only: the customer's copy (production keeps it in order_secrets)
   riderUid?: string | null;
+  /** Demo: proof-of-delivery photo (small data: URL) and when it was added. */
+  podDataUrl?: string | null;
+  podAtMs?: number | null;
+}
+interface PayoutRec extends PayoutRow {
+  vendorId: string;
+}
+interface HygieneRec extends Omit<HygieneRow, 'storeName' | 'submittedByName'> {
+  vendorId: string;
 }
 type RiderRec = Omit<RiderProfile, 'lastSeenMs'> & { vendorId: string; lastSeenMs: number | null; lastLocation: { lat: number; lng: number } | null };
 interface KycRec extends KycDocRow {
@@ -167,6 +187,8 @@ interface State {
   vendorKyc: Record<string, KycStatus>;
   riderCash: RiderCashRow[];
   recalls: RecallRec[];
+  payouts: PayoutRec[];
+  hygiene: HygieneRec[];
 }
 
 const ACCOUNTS: { phone: string; label: string; note: string; user: Omit<AppUser, 'uid' | 'phone' | 'isAnonymous'> }[] = [
@@ -207,6 +229,8 @@ function seed(): State {
     vendorKyc: {},
     riderCash: [],
     recalls: [],
+    payouts: [],
+    hygiene: [],
   };
   for (const a of ACCOUNTS) st.users[a.phone] = { uid: `u-${a.phone.slice(-4)}`, phone: a.phone, isAnonymous: false, ...a.user };
   st.profiles['u-9994'] = {
@@ -258,6 +282,8 @@ function migrate(st: State, now = Date.now()): State {
   st.vendorKyc ??= {};
   st.riderCash ??= [];
   st.recalls ??= [];
+  st.payouts ??= [];
+  st.hygiene ??= [];
   for (const a of ACCOUNTS) st.users[a.phone] ??= { uid: `u-${a.phone.slice(-4)}`, phone: a.phone, isAnonymous: false, ...a.user };
   const day = 86_400_000;
   if (!st.riders['u-9995']) {
@@ -297,7 +323,7 @@ function wrap(e: unknown): never {
   if (e instanceof DataError) throw e;
   if (e instanceof StockError) throw new DataError(e.message, e.code, { productId: e.productId, available: e.available });
   if (e instanceof GstValidationError) throw new DataError(e.message, 'GST_INVALID');
-  if (e instanceof RiderError || e instanceof ComplianceError) throw new DataError(e.message, e.code);
+  if (e instanceof RiderError || e instanceof ComplianceError || e instanceof ExtrasError) throw new DataError(e.message, e.code);
   if (e instanceof TokenError) throw new DataError(e.code === 'EXPIRED' ? 'This QR code has expired' : 'This QR code is not genuine', `QR_${e.code}`);
   throw e;
 }
@@ -892,6 +918,7 @@ export class DemoDataClient implements DataClient {
       riderUid: o.riderUid ?? null,
       riderName: o.riderUid ? this.st.riders[o.riderUid]?.name ?? null : null,
       riderPhone: o.riderUid && live ? this.st.riders[o.riderUid]?.phone ?? null : null,
+      hasPod: !!o.podAtMs,
     };
   }
   async myOrders() {
@@ -1267,7 +1294,8 @@ export class DemoDataClient implements DataClient {
       fileName: i.fileName.slice(0, 100),
       status: 'PENDING',
       reviewNote: null,
-      createdMs: Date.now(),
+      // strictly increasing, so "newest upload wins" holds even for uploads in the same millisecond
+      createdMs: Math.max(Date.now(), ...this.st.kyc.filter((k) => k.ownerUid === u.uid).map((k) => k.createdMs + 1)),
       reviewedMs: null,
       // demo keeps small files so compliance can view them; large ones keep only the name
       dataUrl: i.preview && i.preview.length <= 480 * 1024 ? i.preview : i.file.size <= 350 * 1024 ? await blobToDataUrl(i.file).catch(() => null) : null,
@@ -1341,6 +1369,133 @@ export class DemoDataClient implements DataClient {
     this.audit(u, 'rider.cod_deposit', 'riders', riderUid, null, { amount, storeId, balanceAfter: r.codCashInHand });
     this.save();
     return { codCashInHand: r.codCashInHand };
+  }
+
+  /* -------------------------------------------------- Phase 4 extras · payouts */
+  private canManageRider(u: AppUser, r: RiderRec) {
+    return u.role === 'super_admin' || (u.role === 'seller' && u.vendorId === r.vendorId);
+  }
+  async payRider(riderUid: string, amount: number, method: PayoutMethod, reference: string) {
+    const u = this.me();
+    const r = this.st.riders[riderUid];
+    if (!r) throw new DataError('Rider not found');
+    if (!this.canManageRider(u, r)) throw new DataError('Only the shop owner or admin pays riders', 'PERMISSION_DENIED');
+    let plan;
+    try {
+      plan = planPayout(r.earningsBalance, amount, method, reference);
+    } catch (e) {
+      wrap(e);
+    }
+    r.earningsBalance = plan.earningsBalance;
+    this.st.payouts.unshift({ id: this.id('po-'), riderUid, riderName: r.name, vendorId: r.vendorId, amount, method: plan.method, reference: plan.reference, paidBy: u.uid, atMs: Date.now() });
+    this.audit(u, 'rider.payout', 'riders', riderUid, null, { amount, method: plan.method, reference: plan.reference, earningsBalance: r.earningsBalance });
+    this.save();
+    return { earningsBalance: r.earningsBalance };
+  }
+  async listPayouts(riderUid?: string) {
+    const u = this.me();
+    return this.st.payouts
+      .filter((p) => (u.role === 'rider' ? p.riderUid === u.uid : (u.role === 'super_admin' || (u.role === 'seller' && u.vendorId === p.vendorId)) && (!riderUid || p.riderUid === riderUid)))
+      .map(({ vendorId: _v, ...p }) => ({ ...p }));
+  }
+
+  /* -------------------------------------------------- Phase 4 extras · proof of delivery */
+  private deliveredMs(o: OrderRec) {
+    return [...o.statusHistory].reverse().find((h) => h.status === 'DELIVERED')?.at ?? null;
+  }
+  async attachPod(orderId: string, photo: PhotoInput) {
+    const u = this.requireRole('rider');
+    const o = this.st.orders.find((x) => x.orderId === orderId);
+    if (!o) throw new DataError('Order not found');
+    try {
+      checkPod(u.uid, { riderUid: o.riderUid ?? null, status: o.status, deliveredMs: this.deliveredMs(o) }, Date.now());
+    } catch (e) {
+      wrap(e);
+    }
+    if (!photo.file || photo.file.size === 0) throw new DataError('Take a photo of the bag at the door');
+    if (photo.file.size > 5 * 1024 * 1024) throw new DataError('Photo must be under 5 MB');
+    if (photo.file.type && !/^image\/(jpeg|png|webp)$/.test(photo.file.type)) throw new DataError('Upload a JPG, PNG or WEBP photo');
+    o.podDataUrl = photo.preview && photo.preview.length <= 480 * 1024 ? photo.preview : photo.file.size <= 350 * 1024 ? await blobToDataUrl(photo.file).catch(() => null) : null;
+    o.podAtMs = Date.now();
+    // keep localStorage small: only the latest 10 delivery photos keep their image
+    this.st.orders.filter((x) => x.podDataUrl).sort((a, b) => (b.podAtMs ?? 0) - (a.podAtMs ?? 0)).slice(10).forEach((x) => (x.podDataUrl = null));
+    this.audit(u, 'order.pod', 'orders', orderId, null, { fileName: photo.fileName.slice(0, 100) });
+    this.save();
+  }
+  async podUrl(orderId: string) {
+    const u = this.me();
+    const o = this.st.orders.find((x) => x.orderId === orderId);
+    if (!o) throw new DataError('Order not found');
+    const ok = o.customerUid === u.uid || o.riderUid === u.uid || this.operates(u, o.storeId) || u.role === 'super_admin' || u.role === 'compliance';
+    if (!ok) throw new DataError('Not allowed', 'PERMISSION_DENIED');
+    return o.podDataUrl ?? null;
+  }
+
+  /* -------------------------------------------------- Phase 4 extras · live tracking */
+  async pingRiderLocation(loc: { lat: number; lng: number }) {
+    const { r } = this.rider();
+    const p = validPing(loc);
+    if (!p) throw new DataError('Location not available');
+    if (!r.isOnline) return;
+    r.lastLocation = p;
+    r.lastSeenMs = Date.now();
+    this.save();
+  }
+  async trackRider(orderId: string): Promise<RiderFix | null> {
+    const u = this.me();
+    const o = this.st.orders.find((x) => x.orderId === orderId);
+    if (!o) throw new DataError('Order not found');
+    if (o.customerUid !== u.uid && !this.operates(u, o.storeId) && u.role !== 'super_admin') throw new DataError('Not allowed', 'PERMISSION_DENIED');
+    if (!o.riderUid || !TRACKABLE.includes(o.status)) return null;
+    const r = this.st.riders[o.riderUid];
+    if (!r) return null;
+    const now = Date.now();
+    const dest = o.deliveryAddress.location;
+    if (r.lastLocation && r.lastSeenMs && now - r.lastSeenMs < 10 * 60_000 && haversineMeters(r.lastLocation, dest) < 30_000) return trackEstimate({ ...r.lastLocation, atMs: r.lastSeenMs }, dest, now);
+    // Demo without a real GPS fix: estimate a position along the way from the store.
+    const started = [...o.statusHistory].reverse().find((h) => h.status === 'OUT_FOR_DELIVERY' || h.status === 'HANDED_TO_RIDER')?.at ?? now;
+    const pos = o.status === 'HANDED_TO_RIDER' ? this.store(o.storeId).location : simulateRiderPosition(this.store(o.storeId).location, dest, started, now);
+    return { ...trackEstimate({ ...pos, atMs: now }, dest, now), simulated: true };
+  }
+
+  /* -------------------------------------------------- Phase 4 extras · hygiene checklists */
+  private hygieneRow(h: HygieneRec): HygieneRow {
+    const { vendorId: _v, ...row } = h;
+    const by = Object.values(this.st.users).find((x) => x.uid === h.submittedBy);
+    return { ...row, answers: h.answers.map((a) => ({ ...a })), storeName: this.st.stores.find((s) => s.storeId === h.storeId)?.name ?? null, submittedByName: by?.displayName ?? null };
+  }
+  async submitHygieneCheck(i: HygieneInput) {
+    const u = this.me();
+    if (!this.operates(u, i.storeId)) throw new DataError('You do not operate this store', 'PERMISSION_DENIED');
+    let v;
+    try {
+      v = validateHygiene(i.kind, i.answers, i.temperatureC);
+    } catch (e) {
+      wrap(e);
+    }
+    const rec: HygieneRec = { id: this.id('hc-'), storeId: i.storeId, vendorId: this.store(i.storeId).vendorId, kind: v.kind, answers: v.answers, temperatureC: v.temperatureC, submittedBy: u.uid, submittedMs: Date.now(), flagged: v.flag, reviewStatus: 'PENDING', reviewNote: null };
+    this.st.hygiene.unshift(rec);
+    if (this.st.hygiene.length > 500) this.st.hygiene.length = 500;
+    this.save();
+    return this.hygieneRow(rec);
+  }
+  async listHygieneChecks(opts: { storeId?: string; days?: number; flaggedOnly?: boolean } = {}) {
+    const u = this.me();
+    const since = Date.now() - (opts.days ?? 30) * 86_400_000;
+    return this.st.hygiene
+      .filter((h) => (u.role === 'compliance' || u.role === 'super_admin' || this.operates(u, h.storeId)) && (!opts.storeId || h.storeId === opts.storeId) && h.submittedMs >= since && (!opts.flaggedOnly || h.flagged))
+      .map((h) => this.hygieneRow(h));
+  }
+  async reviewHygieneCheck(id: string, status: 'OK' | 'ACTION_REQUIRED', note?: string) {
+    const u = this.requireRole('compliance', 'super_admin');
+    const h = this.st.hygiene.find((x) => x.id === id);
+    if (!h) throw new DataError('Checklist not found');
+    if (status === 'ACTION_REQUIRED' && (!note || note.trim().length < 3)) throw new DataError('Tell the store what to fix');
+    const before = h.reviewStatus;
+    h.reviewStatus = status;
+    h.reviewNote = note?.trim().slice(0, 200) || null;
+    this.audit(u, 'hygiene.review', 'compliance_checks', id, { reviewStatus: before }, { reviewStatus: status, note: h.reviewNote });
+    this.save();
   }
 
   /* -------------------------------------------------- Phase 4 · compliance */

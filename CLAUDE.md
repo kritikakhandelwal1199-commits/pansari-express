@@ -18,6 +18,7 @@ Expo + Firebase + Cloudflare; 6 roles; API-hold mode with mock adapters; 4 phase
 | 1 | Monorepo, Firestore schema/indexes, firestore.rules + storage.rules, Cloudflare Worker (ID-token/App Check verify, HMAC store QR, Turnstile, rate limits, checkout tokens), adapters (Payment/Geo/Auth/GST + PDFs), role + QR-session functions | DONE |
 | 2 | Seller portal, POS counter, walk-in QR storefront, FEFO stock + ledger, product-wise CGST/SGST/IGST billing, invoices + GSTR-1 summary | DONE |
 | 3 | Customer web `/shop` + Expo app `apps/mobile`: OTP login, addresses, zone check, delivery fee, UPI/card(mock)/wallet/COD, tracking + delivery OTP, invoice at dispatch, wallet refunds; seller `/seller/orders` + `/seller/support`; chatbot (shared/support/chatbot.ts) on all surfaces → tickets | DONE |
+| 4c | Rider payouts (owner records UPI/bank/cash payout → earnings down), proof-of-delivery photo (rider, viewable by customer + store), live rider tracking (rider app pings every 30 s while carrying; customer/store see distance + ETA + mini map; demo estimates position along the route), hygiene checklists (daily / cool storage °C / pest / expiry sweep; staff submit, compliance reviews, "no check today" list) — web + phone | DONE |
 | 4b | Native phone screens for every role (owner, staff picker with camera scan, rider, compliance, admin) | DONE (demo mode) |
 | 4 | `/admin` (people & roles by phone, zones editor + SVG map + address check, GST/HSN master that re-rates products, listing review, audit log), `/staff` picker app (bin-sorted pick list with FEFO batch numbers, barcode/camera tick, rider assign, receive stock, shelf count), `/rider` app (KYC upload, shift, collect → start → deliver with code, COD cash + earnings), `/compliance` (KYC review, listing review, batch/whole-product recalls, audit); seller `/seller/riders` (receive COD cash) + `/seller/kyc` | DONE (web, phone-first) |
 
@@ -25,7 +26,8 @@ Expo + Firebase + Cloudflare; 6 roles; API-hold mode with mock adapters; 4 phase
 ```
 packages/client     DataClient interface (types.ts) + DemoDataClient (demo.ts); source-only package used by web + mobile
 packages/shared     ops/riders.ts (assign/step/COD/KYC roll-up), ops/picking.ts (pick list, scan match, count variance),
-                    ops/compliance.ts (planRecall, recalledInOrder, HSN validate/resolve/re-rate, zone validate);
+                    ops/extras.ts (planPayout, checkPod, trackEstimate/simulateRiderPosition/validPing, HYGIENE_QUESTIONS/
+                    validateHygiene/missingDailyChecks); ops/compliance.ts (planRecall, recalledInOrder, HSN validate/resolve/re-rate, zone validate);
                     types/schema (COL), roles/claims, GST engine, GSTIN check, invoice no. (FY, ≤16 chars),
                     amount in words, geo, HMAC tokens, edge signing, stock planners (planSale/planInward/
                     planAdjust, FEFO), GSTR-1 summary, demo seed data (incl. DEMO_ZONES),
@@ -39,7 +41,7 @@ functions           v2: setUserRole, completeGuestUpgrade, qrSessionClaim, upser
                     audit triggers; Phase 4 in src/ops/phase4.ts: listUsers, saveZone, upsertHsn, saveRiderProfile,
                     setRiderShift, assignRider, receiveCodCash, onKycUploaded (trigger), reviewKyc, createRecall,
                     completeRecall; setUserRole also takes {phone, displayName, homeStoreId}; advanceOrder has the
-                    rider branch. build.mjs → functions/deploy/ (clean package for Google build)
+                    rider branch; src/ops/extras.ts: payRider, attachPod, trackRider. build.mjs → functions/deploy/ (clean package for Google build)
 apps/web            Next.js 16 static export: /, /login, /shop (+/cart, /orders, /orders/view?id=, /account),
                     /seller/* (incl. /orders, /support, /riders, /kyc), /pos, /store?s=<id>&token=,
                     /admin/*, /compliance/*, /staff (+/pick?id=, /receive, /count), /rider (+/cash, /kyc)
@@ -89,6 +91,11 @@ deploy.ps1/.cmd     Windows full deploy (Blaze): Firebase project, secrets, work
 - Recalls: planRecall sets matching batches qty 0 + recalled, RECALL_REMOVAL ledger, whole-product recall
   also unpublishes (RECALLED; reviewProduct refuses to re-approve). Dispatch is blocked for orders holding a
   recalled batch (store must cancel → restock goes into the recalled batch, not on hand).
+- Extras: payouts are records only (API hold — no payout provider); `payouts` written by payRider. POD photo at
+  storage pod/{riderUid}/{orderId}/…, linked by attachPod (order.podPath); storage rule reads the order via
+  firestore.get so customer + store staff can view (deploy grants the storage agent Firestore read). Rider location
+  = direct write to riders/{uid}.lastLocation (rules allow); customers read it only through trackRider. Hygiene
+  checks = direct Firestore writes to compliance_checks (rules validate keys/kind); compliance updates review fields.
 - HSN master edits re-rate products by most specific match (8→6→4 digits); frozen online orders keep
   their computation. Zones/HSN written by callables; the audit triggers skip service-account writes.
 
@@ -96,7 +103,7 @@ deploy.ps1/.cmd     Windows full deploy (Blaze): Firebase project, secrets, work
 ```bash
 npm ci
 npm run build -w @pansari/shared && npm run build -w @pansari/adapters
-npm test            # 89 tests (shared 48, adapters 9, worker 8, functions 7, web flows 17)
+npm test            # 101 tests (shared 56, adapters 9, worker 8, functions 7, web flows 21)
 npm run typecheck
 npm run dev -w @pansari/web     # NEXT_PUBLIC_DATA_MODE=demo by default; OTP 123456
 npm run test:rules              # needs Java; emulator download may be blocked in sandboxes
@@ -132,6 +139,6 @@ Phase 4 is done on the web (phone-first pages work in a phone browser). Remainin
    with an SPA fallback, Playwright at 390×844 (rider on shift → Priya COD → Sunita accept/assign/pick
    → Vikram collect/start/deliver → owner receives cash) — 0 errors on 25 Nov 2026.
 3. React Native Firebase DataClient for apps/mobile, EAS build.
-4. Rider earnings payouts (`payouts` collection), live rider location on the customer's order page,
-   POD photo (storage path pod/{riderUid}/{orderId} already allowed), compliance_checks UI (hygiene).
+4. (done) Payouts, POD photo, live rider tracking, hygiene checklists — web + phone. Next ideas: payout
+   provider (RazorpayX) when APIs are unlocked; background location (expo-task-manager) for riders.
 5. Deploy: Blaze plan + Rahul's sign-ins; then `firebase deploy` (new functions + indexes + rules).

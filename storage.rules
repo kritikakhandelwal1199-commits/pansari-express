@@ -52,9 +52,13 @@ service firebase.storage {
     // Rider proof-of-delivery photos.
     match /pod/{riderUid}/{orderId}/{fileName} {
       allow create: if role() == 'rider' && request.auth.uid == riderUid && isImage() && underMB(5);
-      allow read: if (signedIn() && request.auth.uid == riderUid) || isCompliance() || isSuper();
+      // The customer and the store's staff can see the photo too (reads the order from Firestore).
+      allow read: if (signedIn() && request.auth.uid == riderUid) || isCompliance() || isSuper()
+        || (signedIn() && podOrder(orderId).customerUid == request.auth.uid)
+        || isSellerOf(podOrder(orderId).vendorId) || isStaffOf(podOrder(orderId).vendorId);
       allow update, delete: if false;
     }
+    function podOrder(orderId) { return firestore.get(/databases/(default)/documents/orders/$(orderId)).data; }
 
     match /{allPaths=**} {
       allow read, write: if false;

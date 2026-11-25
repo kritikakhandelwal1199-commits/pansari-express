@@ -10,7 +10,8 @@ export default function RiderCash() {
   const { client } = useData();
   const me = useResource(() => client.myRider(), [client]);
   const ledger = useResource(() => client.riderCash(), [client]);
-  useFocusEffect(React.useCallback(() => (me.reload(), ledger.reload()), [])); // eslint-disable-line react-hooks/exhaustive-deps
+  const payouts = useResource(() => client.listPayouts(), [client]);
+  useFocusEffect(React.useCallback(() => (me.reload(), ledger.reload(), payouts.reload()), [])); // eslint-disable-line react-hooks/exhaustive-deps
   const r = me.data;
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }} refreshControl={<RefreshControl refreshing={ledger.loading} onRefresh={() => (me.reload(), ledger.reload())} />}>
@@ -28,6 +29,17 @@ export default function RiderCash() {
           </Card>
         </View>
       ) : null}
+      <Text className="text-lg font-bold text-ink">Payments to you</Text>
+      {payouts.data && !payouts.data.length ? <Text className="text-sm text-muted">No payments yet. The shop pays your earnings by UPI, bank or cash and records it here.</Text> : null}
+      {(payouts.data ?? []).map((p) => (
+        <View key={p.id} className="flex-row items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3 py-2">
+          <View className="flex-1">
+            <Text className="font-bold text-ink">Paid by {p.method === 'BANK' ? 'bank transfer' : p.method === 'UPI' ? 'UPI' : 'cash'}</Text>
+            <Text className="text-xs text-muted">{fmtTime(p.atMs)}{p.reference ? ` · ref ${p.reference}` : ''}</Text>
+          </View>
+          <Text className="font-bold text-leaf">+{rs(p.amount)}</Text>
+        </View>
+      ))}
       <Text className="text-lg font-bold text-ink">Cash ledger</Text>
       {ledger.data && !ledger.data.length ? <Empty title="No cash yet" sub="Cash-on-delivery money you collect and hand in is listed here." /> : null}
       {(ledger.data ?? []).map((x) => (

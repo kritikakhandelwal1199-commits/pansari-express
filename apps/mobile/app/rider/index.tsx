@@ -2,9 +2,9 @@ import * as React from 'react';
 import { Linking, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import * as Location from 'expo-location';
-import { riderNextStatus, RIDER_COD_CASH_LIMIT } from '@pansari/shared';
+import { riderNextStatus, RIDER_COD_CASH_LIMIT, RIDER_PING_INTERVAL_MS } from '@pansari/shared';
 import type { OrderRow } from '@pansari/client';
-import { Empty, fmtTime, KYC_STATUS, Sheet, Who } from '@/components/role';
+import { Empty, fmtTime, KYC_STATUS, photoBlob, pickPhoto, Sheet, Who } from '@/components/role';
 import { Badge, Button, Card, ErrorText, Field, rs } from '@/components/ui';
 import { errMsg, useData, useResource } from '@/lib/data';
 import { ORDER_STATUS, PAYMENT_LABEL } from '@/lib/labels';
@@ -46,6 +46,25 @@ export default function RiderHome() {
   const live = list.filter((o) => !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(o.status));
   const done = list.filter((o) => o.status === 'DELIVERED');
   const home = stores.data?.find((s) => s.storeId === r?.homeStoreId);
+  const carrying = !!r?.isOnline && live.some((o) => o.status === 'HANDED_TO_RIDER' || o.status === 'OUT_FOR_DELIVERY');
+
+  // While carrying orders, share location so the customer sees the rider on the way.
+  React.useEffect(() => {
+    if (!carrying) return;
+    const send = () => void here().then((p) => (p ? client.pingRiderLocation(p).catch(() => undefined) : undefined));
+    send();
+    const t = setInterval(send, RIDER_PING_INTERVAL_MS);
+    return () => clearInterval(t);
+  }, [carrying]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pod = (o: OrderRow) =>
+    run(`pod-${o.orderId}`, async () => {
+      const p = await pickPhoto('camera');
+      if (!p) return;
+      await client.attachPod(o.orderId, { file: await photoBlob(p), fileName: p.name, preview: p.dataUrl ?? undefined });
+    });
+  const PodButton = ({ o }: { o: OrderRow }) =>
+    o.hasPod ? <Text className="text-sm font-semibold text-leaf">✓ Delivery photo added</Text> : <Button variant="outline" busy={busy === `pod-${o.orderId}`} title="Add delivery photo" onPress={() => void pod(o)} />;
 
   async function run(key: string, fn: () => Promise<unknown>) {
     setBusy(key);
@@ -103,6 +122,7 @@ export default function RiderHome() {
             <Text className="text-xl font-extrabold text-ink">{rs(r.earningsBalance)}</Text>
           </View>
         </View>
+        {carrying ? <Text className="text-xs font-semibold text-leaf">Sharing your location with customers while you carry orders</Text> : null}
         <Who />
       </Card>
       {!deliver ? <ErrorText>{err}</ErrorText> : null}
@@ -156,6 +176,7 @@ export default function RiderHome() {
                 </View>
               ))}
             </View>
+            {o.status === 'OUT_FOR_DELIVERY' ? <PodButton o={o} /> : null}
             {o.status === 'ACCEPTED' || o.status === 'PICKING' ? <Text className="text-sm font-semibold text-muted">The store is packing this order. Head to {o.storeName}.</Text> : null}
             {next ? (
               <Button
@@ -171,9 +192,12 @@ export default function RiderHome() {
 
       {done.length ? <Text className="mt-2 text-lg font-bold text-ink">Delivered today</Text> : null}
       {done.map((o) => (
-        <View key={o.orderId} className="flex-row justify-between rounded-xl border border-line bg-surface px-3 py-2">
-          <Text className="text-sm text-ink">#{o.orderId} · {fmtTime(o.statusHistory.at(-1)?.at ?? o.placedMs)}</Text>
-          <Text className="text-sm font-bold text-ink">{o.payment.method === 'COD' ? `${rs(o.grandTotal)} cash` : 'paid online'}</Text>
+        <View key={o.orderId} className="gap-2 rounded-xl border border-line bg-surface px-3 py-2">
+          <View className="flex-row justify-between">
+            <Text className="text-sm text-ink">#{o.orderId} · {fmtTime(o.statusHistory.at(-1)?.at ?? o.placedMs)}</Text>
+            <Text className="text-sm font-bold text-ink">{o.payment.method === 'COD' ? `${rs(o.grandTotal)} cash` : 'paid online'}</Text>
+          </View>
+          <PodButton o={o} />
         </View>
       ))}
 

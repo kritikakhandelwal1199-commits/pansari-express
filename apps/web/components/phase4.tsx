@@ -2,11 +2,11 @@
 /** Building blocks shared by the admin, compliance, seller and rider screens (Phase 4). */
 import * as React from 'react';
 import { Check, ChevronDown, ChevronRight, FileUp, Loader2, ShieldCheck, X } from 'lucide-react';
-import { KYC_DOC_LABEL, kycMissing, type KycDocType, type KycStatus } from '@pansari/shared';
+import { COLD_RANGE, HYGIENE_KIND_LABEL, HYGIENE_QUESTIONS, KYC_DOC_LABEL, kycMissing, type HygieneKind, type KycDocType, type KycStatus } from '@pansari/shared';
 import { ErrorNote, useToast } from '@/components/common';
 import { Badge, Button, Card, CardTitle, Dialog, DialogContent, EmptyState, Field, Input, Select, Skeleton, Table, Td, Th } from '@/components/ui';
 import { useData, useResource } from '@/lib/data/provider';
-import type { AuditRow, KycDocRow, ProductInfo } from '@/lib/data/types';
+import type { AuditRow, HygieneRow, KycDocRow, ProductInfo } from '@/lib/data/types';
 import { cn, errMsg, fmtTime, rs } from '@/lib/utils';
 
 export const KYC_STATUS: Record<KycStatus, { label: string; tone: 'good' | 'warn' | 'bad' | 'neutral' }> = {
@@ -469,5 +469,244 @@ export function RiderPicker({ order, storeId, onDone, compact }: { order: { orde
         })}
       </Select>
     </label>
+  );
+}
+
+/* ------------------------------------------------------------------ Live rider tracking (customer / store) */
+
+export function RiderTracker({ order }: { order: { orderId: string; status: string; riderUid?: string | null; riderName?: string | null; riderPhone?: string | null; deliveryAddress: { location: { lat: number; lng: number } } | null } }) {
+  const data = useData();
+  const on = !!order.riderUid && (order.status === 'HANDED_TO_RIDER' || order.status === 'OUT_FOR_DELIVERY');
+  const fix = useResource(() => (on ? data.trackRider(order.orderId) : Promise.resolve(null)), [data, order.orderId, on, order.status]);
+  React.useEffect(() => {
+    if (!on) return;
+    const t = setInterval(fix.reload, 15_000);
+    return () => clearInterval(t);
+  }, [on]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!on) return null;
+  const f = fix.data;
+  const ago = f ? Math.max(0, Math.round((Date.now() - f.atMs) / 1000)) : 0;
+  const dest = order.deliveryAddress?.location;
+  return (
+    <div className="grid gap-2 rounded-2xl border border-leaf/30 bg-leaf/5 p-3" aria-live="polite">
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-sm">
+          <div className="font-bold">{order.riderName ?? 'Your rider'} {order.status === 'HANDED_TO_RIDER' ? 'has collected your order' : 'is on the way'}</div>
+          {f ? (
+            <div className="text-muted">
+              <b className="num text-ink">{f.distanceKm.toFixed(1)} km</b> away · about <b className="num text-ink">{f.etaMinutes} min</b>
+              {' · '}
+              {f.simulated ? 'estimated (demo)' : f.live ? `updated ${ago < 60 ? `${ago}s` : `${Math.round(ago / 60)} min`} ago` : `last seen ${fmtTime(f.atMs)}`}
+            </div>
+          ) : fix.loading ? (
+            <div className="text-muted">Finding the rider…</div>
+          ) : (
+            <div className="text-muted">Location not shared yet.</div>
+          )}
+        </div>
+        {order.riderPhone ? (
+          <Button size="sm" variant="outline" asChild>
+            <a href={`tel:${order.riderPhone}`}>Call</a>
+          </Button>
+        ) : null}
+      </div>
+      {f ? <MiniMap rider={f} home={dest ?? null} /> : null}
+      {f && dest ? (
+        <a className="w-fit text-[13px] font-semibold text-kum underline" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&origin=${f.lat},${f.lng}&destination=${dest.lat},${dest.lng}`}>
+          Open in Google Maps
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+/** Two-point map without tiles: rider dot, home pin, dashed line. North is up. */
+function MiniMap({ rider, home }: { rider: { lat: number; lng: number }; home: { lat: number; lng: number } | null }) {
+  if (!home) return null;
+  const W = 320;
+  const H = 120;
+  const pad = 24;
+  const kx = Math.cos((home.lat * Math.PI) / 180);
+  const dx = (rider.lng - home.lng) * kx;
+  const dy = rider.lat - home.lat;
+  const span = Math.max(Math.abs(dx), Math.abs(dy), 0.0004);
+  const sx = (W / 2 - pad) / span;
+  const sy = (H / 2 - pad) / span;
+  const s = Math.min(sx, sy);
+  const hx = W / 2 - (dx * s) / 2;
+  const hy = H / 2 + (dy * s) / 2;
+  const rx = hx + dx * s;
+  const ry = hy - dy * s;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto max-h-36 w-full rounded-xl border border-line bg-surface" role="img" aria-label="Rider position relative to your home">
+      <line x1={rx} y1={ry} x2={hx} y2={hy} stroke="#2f7a35" strokeWidth="2.5" strokeDasharray="6 5" />
+      <g transform={`translate(${hx},${hy})`}>
+        <circle r="8" fill="#a3122b" />
+        <circle r="3" fill="#fff" />
+      </g>
+      <g transform={`translate(${rx},${ry})`}>
+        <circle r="11" fill="#2f7a35" fillOpacity="0.2">
+          <animate attributeName="r" values="8;14;8" dur="2s" repeatCount="indefinite" />
+        </circle>
+        <circle r="6" fill="#2f7a35" stroke="#fff" strokeWidth="2" />
+      </g>
+      <text x={hx} y={hy + 22} textAnchor="middle" fontSize="11" fontWeight="700" fill="currentColor">Home</text>
+      <text x={rx} y={ry - 14} textAnchor="middle" fontSize="11" fontWeight="700" fill="#2f7a35">Rider</text>
+    </svg>
+  );
+}
+
+/* ------------------------------------------------------------------ Proof-of-delivery photo viewer */
+
+export function PodPhoto({ orderId, hasPod }: { orderId: string; hasPod?: boolean }) {
+  const data = useData();
+  const [open, setOpen] = React.useState(false);
+  const url = useResource(() => (open ? data.podUrl(orderId) : Promise.resolve(null)), [data, orderId, open]);
+  if (!hasPod) return null;
+  return (
+    <>
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+        Delivery photo
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent title="Delivery photo" description="Taken by the rider at handover.">
+          <div className="grid min-h-40 place-items-center overflow-hidden rounded-xl border border-line bg-surface-2">
+            {url.loading ? (
+              <Loader2 className="size-6 animate-spin text-muted" />
+            ) : url.data ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={url.data} alt="Bag handed over at the door" className="max-h-[60vh] w-auto" />
+            ) : (
+              <p className="p-6 text-center text-sm text-muted">Photo not available on this device.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ Hygiene checklists */
+
+export function HygieneForm({ storeId, onSaved }: { storeId: string; onSaved: () => void }) {
+  const data = useData();
+  const toast = useToast();
+  const [kind, setKind] = React.useState<HygieneKind>('HYGIENE_DAILY');
+  const qs = HYGIENE_QUESTIONS[kind];
+  const [ans, setAns] = React.useState<{ ok: boolean | null; note: string }[]>(() => qs.map(() => ({ ok: null, note: '' })));
+  const [temp, setTemp] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    setAns(HYGIENE_QUESTIONS[kind].map(() => ({ ok: null, note: '' })));
+    setTemp('');
+    setErr(null);
+  }, [kind]);
+  const ready = ans.length === qs.length && ans.every((a) => a.ok !== null && (a.ok || a.note.trim().length >= 3)) && (kind !== 'COLD_CHAIN' || temp.trim() !== '');
+
+  async function save() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await data.submitHygieneCheck({ storeId, kind, answers: qs.map((question, i) => ({ question, ok: ans[i]!.ok === true, note: ans[i]!.note.trim() || undefined })), temperatureC: kind === 'COLD_CHAIN' ? Number(temp) : null });
+      toast({ tone: r.flagged ? 'bad' : 'good', text: r.flagged ? 'Saved — problems flagged to the compliance team' : 'Checklist saved' });
+      setAns(qs.map(() => ({ ok: null, note: '' })));
+      setTemp('');
+      onSaved();
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card className="grid gap-3">
+      <Field label="Checklist">
+        <Select value={kind} onChange={(e) => setKind(e.target.value as HygieneKind)}>
+          {(Object.keys(HYGIENE_QUESTIONS) as HygieneKind[]).map((k) => (
+            <option key={k} value={k}>
+              {HYGIENE_KIND_LABEL[k]}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <ol className="grid gap-2">
+        {qs.map((q, i) => {
+          const a = ans[i] ?? { ok: null, note: '' };
+          return (
+            <li key={q} className="grid gap-2 rounded-xl border border-line p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-semibold">{q}</span>
+                <span className="flex gap-1" role="group" aria-label={q}>
+                  <Button type="button" size="sm" variant={a.ok === true ? 'leaf' : 'outline'} aria-pressed={a.ok === true} onClick={() => setAns(ans.map((x, j) => (j === i ? { ...x, ok: true } : x)))}>
+                    Yes
+                  </Button>
+                  <Button type="button" size="sm" variant={a.ok === false ? 'destructive' : 'outline'} aria-pressed={a.ok === false} onClick={() => setAns(ans.map((x, j) => (j === i ? { ...x, ok: false } : x)))}>
+                    No
+                  </Button>
+                </span>
+              </div>
+              {a.ok === false ? <Input aria-label={`What is wrong: ${q}`} placeholder="What is wrong, and what you did" value={a.note} onChange={(e) => setAns(ans.map((x, j) => (j === i ? { ...x, note: e.target.value } : x)))} maxLength={200} /> : null}
+            </li>
+          );
+        })}
+      </ol>
+      {kind === 'COLD_CHAIN' ? (
+        <Field label={`Temperature now (°C) — safe range ${COLD_RANGE.min}–${COLD_RANGE.max}`}>
+          <Input inputMode="decimal" value={temp} onChange={(e) => setTemp(e.target.value)} className="num w-32" />
+        </Field>
+      ) : null}
+      {err ? <ErrorNote>{err}</ErrorNote> : null}
+      <Button size="lg" disabled={!ready || busy} onClick={save}>
+        Submit checklist
+      </Button>
+    </Card>
+  );
+}
+
+const HC_STATUS = { PENDING: { label: 'Not reviewed', tone: 'neutral' }, OK: { label: 'Reviewed — OK', tone: 'good' }, ACTION_REQUIRED: { label: 'Action needed', tone: 'bad' } } as const;
+
+export function HygieneList({ rows, onReview }: { rows: HygieneRow[]; onReview?: (h: HygieneRow) => void }) {
+  const [open, setOpen] = React.useState<string | null>(null);
+  if (!rows.length) return <EmptyState title="No checklists yet">Submitted checklists appear here.</EmptyState>;
+  return (
+    <ul className="grid gap-2">
+      {rows.map((h) => (
+        <li key={h.id} className={cn('grid gap-2 rounded-2xl border bg-surface p-3', h.flagged ? 'border-danger/40' : 'border-line')}>
+          <button type="button" className="flex flex-wrap items-start justify-between gap-2 text-left" onClick={() => setOpen(open === h.id ? null : h.id)} aria-expanded={open === h.id}>
+            <span>
+              <span className="font-bold">{HYGIENE_KIND_LABEL[h.kind]}</span>
+              <span className="num block text-[13px] text-muted">
+                {h.storeName ?? h.storeId} · {fmtTime(h.submittedMs)} · {h.submittedByName ?? 'staff'}
+                {h.temperatureC !== null ? ` · ${h.temperatureC}°C` : ''}
+              </span>
+            </span>
+            <span className="flex flex-wrap gap-1">
+              {h.flagged ? <Badge tone="bad">{h.answers.filter((a) => !a.ok).length ? `${h.answers.filter((a) => !a.ok).length} problem(s)` : 'Temperature out of range'}</Badge> : <Badge tone="good">All OK</Badge>}
+              <Badge tone={HC_STATUS[h.reviewStatus].tone}>{HC_STATUS[h.reviewStatus].label}</Badge>
+            </span>
+          </button>
+          {h.reviewNote ? <p className="text-sm font-semibold text-danger">Compliance: {h.reviewNote}</p> : null}
+          {open === h.id ? (
+            <ul className="grid gap-1 text-sm">
+              {h.answers.map((a) => (
+                <li key={a.question} className="flex gap-2">
+                  <span className={a.ok ? 'text-leaf' : 'text-danger'}>{a.ok ? '✓' : '✗'}</span>
+                  <span>
+                    {a.question}
+                    {a.note ? <span className="block text-muted">{a.note}</span> : null}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {onReview && h.reviewStatus === 'PENDING' ? (
+            <Button size="sm" variant={h.flagged ? 'default' : 'outline'} className="w-fit" onClick={() => onReview(h)}>
+              Review
+            </Button>
+          ) : null}
+        </li>
+      ))}
+    </ul>
   );
 }
