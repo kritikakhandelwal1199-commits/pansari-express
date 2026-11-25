@@ -11,7 +11,7 @@
  *    online deliveries use the delivery address state.
  *  - Every movement produces a ledger entry with the running balance.
  */
-import { computeInvoice, type InvoiceComputation } from '../gst/engine.js';
+import { computeInvoice, type InvoiceComputation, type TaxLineInput } from '../gst/engine.js';
 import { financialYear, formatInvoiceNo } from '../gst/invoiceNumber.js';
 import type { Paise } from '../money.js';
 import type { ComplianceStatus, GstSlab, PaymentMethod, SalesChannel, StockMovement, TaxType, Uqc } from '../schema.js';
@@ -150,6 +150,16 @@ export interface SaleRequest {
   customerUid?: string | null;
   guestUid?: string | null;
   actorUid: string;
+  /** Online only: service charges billed on the same invoice (e.g. delivery fee). */
+  charges?: SaleCharge[];
+}
+
+export interface SaleCharge {
+  code: string; // "DELIVERY"
+  name: string;
+  sac: string;
+  amount: Paise; // GST-inclusive
+  gstSlab: GstSlab;
 }
 
 export interface SaleSnapshot {
@@ -259,9 +269,11 @@ export function planSale(req: SaleRequest, snap: SaleSnapshot): SalePlan {
     firstBatch.set(productId, { batchNumber: first.batchNumber, expiryMs: first.expiryMs });
   }
 
+  const charges = req.channel === 'ONLINE' ? (req.charges ?? []).filter((c) => c.amount > 0) : [];
+  for (const c of charges) if (!Number.isSafeInteger(c.amount) || c.amount < 0) throw new StockError('BAD_AMOUNT', `Bad ${c.name}`);
   const pos = req.channel === 'ONLINE' ? req.buyer?.placeOfSupplyStateCode ?? snap.store.stateCode : snap.store.stateCode;
   const computation = computeInvoice(
-    lines.map((l) => {
+    lines.map((l): TaxLineInput => {
       const fb = firstBatch.get(l.productId)!;
       return {
         productId: l.productId,
@@ -276,7 +288,9 @@ export function planSale(req: SaleRequest, snap: SaleSnapshot): SalePlan {
         batchNumber: fb.batchNumber,
         expiryDate: fb.expiryMs ? ddmmyyyy(fb.expiryMs) : null,
       };
-    }),
+    }).concat(
+      charges.map((c): TaxLineInput => ({ productId: `charge:${c.code}`, name: c.name, hsnCode: c.sac, qty: 1, unit: 'OTH' as Uqc, unitPrice: c.amount, taxType: 'INCLUSIVE' as TaxType, gstSlab: c.gstSlab, cessRate: 0, batchNumber: null, expiryDate: null })),
+    ),
     { sellerStateCode: snap.store.stateCode, placeOfSupplyStateCode: pos, buyerGstin: req.buyer?.gstin ?? null },
   );
 

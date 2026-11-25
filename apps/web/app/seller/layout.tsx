@@ -2,7 +2,8 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookText, Boxes, FileText, LayoutGrid, LogOut, Package, QrCode, ScanBarcode } from 'lucide-react';
+import { BookText, Bike, Boxes, FileText, LayoutGrid, LifeBuoy, LogOut, Package, QrCode, ScanBarcode } from 'lucide-react';
+import { ChatWidget } from '@/components/ChatWidget';
 import { Brand, RequireStaff, useSelectedStore } from '@/components/common';
 import { Button, Select } from '@/components/ui';
 import { useData, useResource } from '@/lib/data/provider';
@@ -12,11 +13,13 @@ import { cn } from '@/lib/utils';
 
 const NAV = [
   { href: '/seller', label: 'Dashboard', icon: LayoutGrid, roles: ['seller', 'staff', 'super_admin'] },
+  { href: '/seller/orders', label: 'Online orders', icon: Bike, roles: ['seller', 'staff'] },
   { href: '/seller/products', label: 'Products', icon: Package, roles: ['seller', 'super_admin'] },
   { href: '/seller/inventory', label: 'Stock', icon: Boxes, roles: ['seller', 'staff'] },
   { href: '/seller/ledger', label: 'Stock ledger', icon: BookText, roles: ['seller', 'staff'] },
   { href: '/seller/invoices', label: 'Invoices & GST', icon: FileText, roles: ['seller', 'staff'] },
   { href: '/seller/qr', label: 'Store QR', icon: QrCode, roles: ['seller'] },
+  { href: '/seller/support', label: 'Help requests', icon: LifeBuoy, roles: ['seller', 'staff', 'super_admin'] },
 ];
 
 function Shell({ user, children }: { user: AppUser; children: React.ReactNode }) {
@@ -74,6 +77,7 @@ function Shell({ user, children }: { user: AppUser; children: React.ReactNode })
         </aside>
         <main className="min-w-0 px-4 pb-16 pt-6 sm:px-6 lg:px-8">{children}</main>
       </div>
+      <ChatWidget role={user.role} storeId={storeId} />
     </SellerContext.Provider>
   );
 }

@@ -6,6 +6,7 @@ import { CalendarClock, CheckCircle2, Clock, Download, MapPin, Minus, Plus, QrCo
 import { CATEGORY_LABELS, computeInvoice, LOOSE_UNITS } from '@pansari/shared';
 import { buildUpiUri } from '@pansari/adapters';
 import { Brand, ErrorNote, Qr, useToast } from '@/components/common';
+import { ChatWidget } from '@/components/ChatWidget';
 import { Badge, Button, Field, Input, Skeleton } from '@/components/ui';
 import { useData, useGuest, useResource } from '@/lib/data/provider';
 import type { GuestCart, InventoryRow, InvoiceRow, StoreInfo } from '@/lib/data/types';
@@ -380,6 +381,7 @@ function Shop({ store, onBill, qrExp }: { store: StoreInfo; onBill: (b: InvoiceR
         ) : null}
         {sheet === 'counter' && checkout ? <CounterQr checkout={checkout} total={comp?.totals.grandTotal ?? 0} /> : null}
       </Sheet>
+      {!sheet ? <ChatWidget role="temp_qr_guest" storeId={store.storeId} className={count > 0 ? 'bottom-24' : undefined} /> : null}
     </div>
   );
 }

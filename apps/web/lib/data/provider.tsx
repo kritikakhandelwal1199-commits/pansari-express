@@ -23,7 +23,7 @@ export function createClient(demoOptions?: DemoOptions): DataClient {
           edgeUrl: process.env.NEXT_PUBLIC_EDGE_URL ?? 'http://127.0.0.1:8787',
           useEmulators: process.env.NEXT_PUBLIC_USE_EMULATORS === 'true',
         })
-      : new DemoDataClient(demoOptions);
+      : new DemoDataClient({ basePath: process.env.NEXT_PUBLIC_BASE_PATH || '', ...demoOptions });
   return singleton;
 }
 

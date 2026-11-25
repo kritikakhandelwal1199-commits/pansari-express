@@ -12,7 +12,7 @@ const config: NextConfig = {
   assetPrefix: basePath || undefined,
   trailingSlash: !!basePath, // GitHub Pages serves folder/index.html
   reactStrictMode: true,
-  transpilePackages: ['@pansari/shared', '@pansari/adapters'],
+  transpilePackages: ['@pansari/shared', '@pansari/adapters', '@pansari/client'],
   poweredByHeader: false,
   images: { unoptimized: true },
 };

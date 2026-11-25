@@ -2,6 +2,7 @@
  * Cloud Functions (v2).
  * Phase 1: identity, walk-in QR sessions, admin audit.
  * Phase 2: catalogue, pricing, stock movements, counter / QR billing, invoice PDFs.
+ * Phase 3: online delivery orders, wallet, support tickets.
  */
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
@@ -159,3 +160,4 @@ export const auditPlatformConfig = auditTrigger(COL.platformConfig);
 export { upsertProduct, reviewProduct, setStorePrice, inwardStock, adjustStock } from './stock/stockFns.js';
 export { commitSale, getInvoicePdf } from './sales/commitSale.js';
 export { bootstrapBusiness } from './setup/bootstrap.js';
+export { placeOrder, cancelOrder, advanceOrder, topUpWallet, createSupportTicket, setTicketStatus } from './orders/onlineOrders.js';

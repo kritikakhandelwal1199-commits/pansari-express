@@ -1,0 +1,12 @@
+{
+  "name": "@pansari/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DataClient interface + in-memory demo backend shared by the web and mobile apps",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "dependencies": { "@pansari/shared": "*", "@pansari/adapters": "*" }
+}

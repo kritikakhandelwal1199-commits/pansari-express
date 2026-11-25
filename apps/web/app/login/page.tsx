@@ -18,7 +18,9 @@ function LoginInner() {
   const [vid, setVid] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const accounts = data.demoAccounts?.() ?? [];
+  const forShop = next.startsWith('/shop');
+  const all = data.demoAccounts?.() ?? [];
+  const accounts = forShop ? [...all].sort((a, b) => Number(b.label.startsWith('Customer')) - Number(a.label.startsWith('Customer'))) : all;
 
   const e164 = (v: string) => {
     const d = v.replace(/\D/g, '');
@@ -67,7 +69,7 @@ function LoginInner() {
 
   return (
     <main className="mx-auto grid min-h-[calc(100dvh-28px)] max-w-md content-center gap-6 px-4 py-10">
-      <Brand sub="Shop staff sign in" />
+      <Brand sub={forShop ? 'Sign in to order — any mobile number works' : 'Sign in'} />
       {user ? (
         <Card className="flex items-center justify-between gap-3">
           <div className="text-sm">

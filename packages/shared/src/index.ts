@@ -12,3 +12,5 @@ export * from './edgeSignature.js';
 export * from './inventory/stock.js';
 export * from './gst/gstr1.js';
 export * from './seed/demoSeed.js';
+export * from './orders/online.js';
+export * from './support/chatbot.js';

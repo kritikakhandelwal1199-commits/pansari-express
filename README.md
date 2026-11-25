@@ -4,14 +4,14 @@ Multi-store kirana platform (jadibuti, pooja, shaadi, dry fruits, home goods) wi
 online quick delivery, walk-in **scan-the-store-QR** shopping without an app, one
 unified stock ledger for online + counter sales, and product-wise Indian GST billing.
 
-This repository contains **Phase 1 (foundation)** and **Phase 2 (seller portal, POS
-counter, walk-in QR storefront, unified stock and GST billing)**.
+This repository contains **Phases 1–3**: foundation, seller portal + POS + walk-in QR storefront,
+and the customer delivery app (web + Expo phone app) with the support chatbot.
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Folder architecture, Firestore schema + indexes, `firestore.rules` / `storage.rules`, Cloudflare Worker (token checks, HMAC QR, Turnstile, rate limits), Service Adapter Layer (Payment, Geo, OTP, GST + invoice PDF), identity functions | Done |
 | 2 | Seller portal, POS counter, walk-in QR storefront, stock management (FEFO, ledger), product-wise CGST/SGST/IGST billing, GSTR-1 summary | **Done** |
-| 3 | Customer web + Expo app, embedded support chatbot | — |
+| 3 | Customer web shop (`/shop`) + Expo phone app (`apps/mobile`): OTP login, addresses, zone check, cart with delivery fee, UPI/card (test)/wallet/COD checkout, order tracking with delivery code, GST invoice at dispatch, wallet with instant refunds; seller online-orders queue; support chatbot on every screen with escalation to tickets | **Done** |
 | 4 | Super admin, picker/staff app, rider app, compliance portal | — |
 
 ## Live demo
@@ -40,8 +40,9 @@ functions            Firebase Cloud Functions v2: setUserRole, qrSessionClaim, c
 firebase/tests       Security-rules tests (Firestore emulator)
 firestore.rules      Zero-trust database rules       storage.rules   Storage rules
 firestore.indexes.json                                firebase.json   Emulator + deploy config
-apps/web             Next.js app: seller portal (/seller), POS counter (/pos), walk-in storefront (/store/[id])
-apps/mobile          Expo apps — Phase 3/4
+packages/client      DataClient interface + in-memory demo backend, shared by web and phone
+apps/web             Next.js app: customer shop (/shop), seller portal (/seller), POS (/pos), walk-in storefront (/store?s=)
+apps/mobile          Expo (React Native + NativeWind) customer app — own package-lock, see apps/mobile/README.md
 preview/web          Builds a single-file demo of apps/web for sharing
 docs/                ARCHITECTURE.md, SCHEMA.md
 ```

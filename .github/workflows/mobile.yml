@@ -1,0 +1,32 @@
+name: Mobile app (Expo) — typecheck + Android bundle
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps/mobile/**', 'packages/**', 'services/adapters/**', '.github/workflows/mobile.yml']
+  pull_request:
+    paths: ['apps/mobile/**', 'packages/**', 'services/adapters/**']
+  workflow_dispatch:
+
+jobs:
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/mobile/package-lock.json
+      - run: npm ci
+      - run: npm run build -w @pansari/shared && npm run build -w @pansari/adapters
+      - run: npm ci
+        working-directory: apps/mobile
+      - run: npx tsc --noEmit
+        working-directory: apps/mobile
+      - run: npx expo export --platform android --output-dir dist
+        working-directory: apps/mobile
+        env:
+          EXPO_OFFLINE: '1'

@@ -2,9 +2,10 @@
   "name": "pansari-express",
   "private": true,
   "version": "0.1.0",
-  "description": "Hyperlocal quick-commerce + offline QR store system (Phase 1: foundation)",
+  "description": "Hyperlocal quick-commerce + offline QR store system",
   "workspaces": [
     "packages/shared",
+    "packages/client",
     "services/adapters",
     "edge/worker",
     "functions",

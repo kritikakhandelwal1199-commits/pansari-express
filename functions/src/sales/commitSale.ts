@@ -231,7 +231,7 @@ export const commitSale = onCall({ timeoutSeconds: 60, memory: '512MiB' }, async
   };
 });
 
-async function finaliseInvoice(
+export async function finaliseInvoice(
   invoiceId: string,
   invoiceNo: string,
   comp: InvoiceComputation,
@@ -242,6 +242,7 @@ async function finaliseInvoice(
   method: PaymentMethod,
   orderId: string,
   vendorId: string,
+  opts: { online?: boolean } = {},
 ) {
   const gst = new MockGstProvider({ mockSigningKey: MOCK_IRP_KEY.value() });
   const issuedAt = new Date();
@@ -268,7 +269,7 @@ async function finaliseInvoice(
     qrPayload = reg.SignedQRCode;
     qrCaption = 'Signed e-invoice QR (test mode)';
     Object.assign(update, { irn, ackNo, ackDate, signedQr: reg.SignedQRCode, einvoiceJson: JSON.stringify(payload), irnIsMock: reg.isMock });
-  } else if (upiVpa && seller.gstin) {
+  } else if (upiVpa && seller.gstin && !opts.online) {
     qrPayload = gst.b2cUpiQr({ sellerGstin: seller.gstin, payeeVpa: upiVpa, payeeName: seller.tradeName, invoiceNo, invoiceDate: issuedAt, computation: comp });
     qrCaption = 'UPI QR with GST break-up';
     update.upiQrPayload = qrPayload;
@@ -281,7 +282,7 @@ async function finaliseInvoice(
     buyer: { name: buyer.name, gstin: buyer.gstin, address: buyer.address },
     computation: comp,
     orderRef: orderId,
-    paymentMode: { CASH: 'Cash', UPI_QR: 'UPI', UPI_INTENT: 'UPI', CARD: 'Card', COD: 'Cash on delivery' }[method],
+    paymentMode: { CASH: 'Cash', UPI_QR: 'UPI', UPI_INTENT: 'UPI', CARD: 'Card', COD: 'Cash on delivery', WALLET: 'Pansari wallet' }[method],
     irn,
     ackNo,
     ackDate,

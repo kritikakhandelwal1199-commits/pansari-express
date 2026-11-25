@@ -49,6 +49,9 @@ beforeEach(async () => {
     await setDoc(doc(db, 'stores/S2'), { storeId: 'S2', vendorId: 'V1', name: 'Malviya Nagar', stateCode: '08', qrKeyVersion: 1, isActive: true });
     await setDoc(doc(db, 'store_inventory/S1_p12'), inv('S1', 'p12'));
     await setDoc(doc(db, 'store_inventory/S2_p12'), inv('S2', 'p12'));
+    await setDoc(doc(db, 'store_inventory/S1_p13'), { ...inv('S1', 'p13'), isListed: false });
+    await setDoc(doc(db, 'order_secrets/o1'), { customerUid: 'cust1', deliveryOtp: '4821' });
+    await setDoc(doc(db, 'wallet_txns/w1'), { uid: 'cust1', kind: 'TOPUP', amount: 10000, balanceAfter: 10000 });
     await setDoc(doc(db, 'store_inventory/S1_p12/batches/b1'), { batchId: 'b1', storeId: 'S1', vendorId: 'V1', productId: 'p12', purchasePrice: 6000, qty: 12 });
     await setDoc(doc(db, 'orders/o1'), { orderId: 'o1', storeId: 'S1', vendorId: 'V1', customerUid: 'cust1', guestUid: null, riderUid: null });
     await setDoc(doc(db, 'riders/rider1'), { uid: 'rider1', kycStatus: 'PENDING', isOnline: false, lastLocation: null, lastSeenAt: null, codCashInHand: 0 });
@@ -59,9 +62,11 @@ describe('public + anonymous', () => {
   it('anyone can read the public store card', async () => {
     await assertSucceeds(getDoc(doc(ctx.public(), 'stores/S1')));
   });
-  it('unauthenticated and plain-anonymous users cannot read stock or prices', async () => {
-    await assertFails(getDoc(doc(ctx.public(), 'store_inventory/S1_p12')));
-    await assertFails(getDoc(doc(ctx.anon(), 'store_inventory/S1_p12')));
+  it('anyone can browse listed shelf rows, but not unlisted rows or batches', async () => {
+    await assertSucceeds(getDoc(doc(ctx.public(), 'store_inventory/S1_p12')));
+    await assertSucceeds(getDocs(query(collection(ctx.public(), 'store_inventory'), where('storeId', '==', 'S1'), where('isListed', '==', true))));
+    await assertFails(getDoc(doc(ctx.public(), 'store_inventory/S1_p13')));
+    await assertFails(getDoc(doc(ctx.anon(), 'store_inventory/S1_p12/batches/b1')));
   });
   it('nobody can write audit logs or counters from a client', async () => {
     await assertFails(setDoc(doc(ctx.superAdmin(), 'audit_logs/x'), { a: 1 }));
@@ -70,11 +75,9 @@ describe('public + anonymous', () => {
 });
 
 describe('temp_qr_guest scoping', () => {
-  it('reads listed stock of its scanned store only', async () => {
-    await assertSucceeds(getDoc(doc(ctx.guest(), 'store_inventory/S1_p12')));
-    await assertFails(getDoc(doc(ctx.guest(), 'store_inventory/S2_p12')));
+  it('reads listed stock but never unlisted rows', async () => {
     await assertSucceeds(getDocs(query(collection(ctx.guest(), 'store_inventory'), where('storeId', '==', 'S1'), where('isListed', '==', true))));
-    await assertFails(getDocs(query(collection(ctx.guest(), 'store_inventory'), where('isListed', '==', true))));
+    await assertFails(getDocs(query(collection(ctx.guest(), 'store_inventory'), where('storeId', '==', 'S1'))));
   });
   it('cannot see batches (purchase price)', async () => {
     await assertFails(getDoc(doc(ctx.guest(), 'store_inventory/S1_p12/batches/b1')));
@@ -133,6 +136,24 @@ describe('customers', () => {
     await assertFails(setDoc(doc(ctx.customer('cust1'), 'users/cust1'), { ...base, roleMirror: 'super_admin' }));
     await assertSucceeds(setDoc(doc(ctx.customer('cust1'), 'users/cust1'), base));
     await assertFails(updateDoc(doc(ctx.customer('cust1'), 'users/cust1'), { loyaltyPoints: 500 }));
+    await assertFails(updateDoc(doc(ctx.customer('cust1'), 'users/cust1'), { walletBalance: 99999, updatedAt: serverTimestamp() }));
+  });
+  it('see their own delivery code and wallet history only', async () => {
+    await assertSucceeds(getDoc(doc(ctx.customer('cust1'), 'order_secrets/o1')));
+    await assertFails(getDoc(doc(ctx.customer('cust2'), 'order_secrets/o1')));
+    await assertFails(getDoc(doc(ctx.seller(), 'order_secrets/o1')));
+    await assertSucceeds(getDoc(doc(ctx.customer('cust1'), 'wallet_txns/w1')));
+    await assertFails(getDoc(doc(ctx.customer('cust2'), 'wallet_txns/w1')));
+    await assertFails(setDoc(doc(ctx.customer('cust1'), 'wallet_txns/w2'), { uid: 'cust1', amount: 5000 }));
+  });
+  it('raise tickets only through the function; the shop reads tickets for its stores', async () => {
+    await assertFails(setDoc(doc(ctx.customer('cust1'), 'support_tickets/t0'), { createdBy: 'cust1', creatorRole: 'customer', status: 'OPEN' }));
+    await env.withSecurityRulesDisabled(async (c) => setDoc(doc(c.firestore(), 'support_tickets/t1'), { createdBy: 'cust1', vendorId: 'V1', storeId: 'S1', status: 'OPEN' }));
+    await assertSucceeds(getDoc(doc(ctx.customer('cust1'), 'support_tickets/t1')));
+    await assertSucceeds(getDoc(doc(ctx.seller(), 'support_tickets/t1')));
+    await assertSucceeds(getDoc(doc(ctx.staff(['S1']), 'support_tickets/t1')));
+    await assertFails(getDoc(doc(ctx.staff(['S2'], 'staff2'), 'support_tickets/t1')));
+    await assertFails(getDoc(doc(ctx.seller('V2', 'seller2'), 'support_tickets/t1')));
   });
 });
 

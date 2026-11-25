@@ -6,6 +6,7 @@ import { ErrorNote, useToast } from '@/components/common';
 import { PageHead, useSeller } from '@/components/seller';
 import { Badge, Button, Card, CardTitle, EmptyState, Segmented, Skeleton, Stat, Table, Td, Th } from '@/components/ui';
 import { useData, useResource } from '@/lib/data/provider';
+import { PAYMENT_LABEL } from '@/lib/labels';
 import { downloadBlob, errMsg, fmtTime, openPdf, rs } from '@/lib/utils';
 
 type Period = 'today' | 'month' | 'last' | 'fy';
@@ -120,7 +121,7 @@ export default function InvoicesPage() {
                   </Td>
                   <Td className="text-[13px]">
                     {storeName(i.storeId)}
-                    <div className="text-muted">{{ CASH: 'Cash', UPI_QR: 'UPI', UPI_INTENT: 'UPI', CARD: 'Card', COD: 'COD' }[i.paymentMethod]}</div>
+                    <div className="text-muted">{PAYMENT_LABEL[i.paymentMethod]}</div>
                   </Td>
                   <Td className="num text-right">{rs(i.computation.totals.taxable)}</Td>
                   <Td className="num text-right">{rs(i.computation.totals.totalTax)}</Td>

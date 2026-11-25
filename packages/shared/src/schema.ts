@@ -27,6 +27,10 @@ export const COL = {
   stockLedger: 'stock_ledger',
   tempCarts: 'temp_carts',
   orders: 'orders',
+  /** order_secrets/{orderId} — delivery OTP, readable only by the ordering customer. */
+  orderSecrets: 'order_secrets',
+  /** wallet_txns/{id} — append-only wallet ledger, server-written. */
+  walletTxns: 'wallet_txns',
   invoices: 'invoices',
   counters: 'counters',
   riders: 'riders',
@@ -253,6 +257,7 @@ export const STOCK_MOVEMENTS = [
   'STOCK_TRANSFER_OUT',
   'STOCK_TRANSFER_IN',
   'RECALL_REMOVAL',
+  'ORDER_CANCEL_RESTOCK',
 ] as const;
 export type StockMovement = (typeof STOCK_MOVEMENTS)[number];
 
@@ -293,7 +298,7 @@ export interface TempCartDoc {
 }
 
 export type SalesChannel = 'ONLINE' | 'OFFLINE_QR' | 'POS_WALKIN';
-export type PaymentMethod = 'UPI_INTENT' | 'UPI_QR' | 'CARD' | 'COD' | 'CASH';
+export type PaymentMethod = 'UPI_INTENT' | 'UPI_QR' | 'CARD' | 'COD' | 'CASH' | 'WALLET';
 export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED' | 'PARTIALLY_REFUNDED';
 export type OrderStatus =
   | 'PLACED'
@@ -336,8 +341,27 @@ export interface OrderDoc {
   riderUid: string | null;
   deliveryOtpHash: string | null;
   invoiceId: string | null;
+  /** Online orders: delivery fee etc. (also lines in the computation). */
+  charges?: { code: string; name: string; amount: Paise }[];
+  /** Online orders: tax computation frozen at order time; invoice number is
+   *  assigned at dispatch so cancelled orders never consume a number. */
+  computationJson?: string | null;
+  etaMinutes?: number | null;
+  cancelReason?: string | null;
+  statusHistory?: { status: OrderStatus; at: number; by: string }[];
   createdAt: Ts;
   updatedAt: Ts;
+}
+
+/** wallet_txns/{id} */
+export interface WalletTxnDoc {
+  uid: string;
+  kind: 'TOPUP' | 'ORDER_DEBIT' | 'REFUND' | 'ADJUSTMENT';
+  amount: Paise; // + credit, - debit
+  balanceAfter: Paise;
+  refId: string | null;
+  note: string | null;
+  at: Ts;
 }
 
 export type InvoiceKind = 'B2C' | 'B2B';

@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "Pansari Express",
+    "slug": "pansari-express",
+    "scheme": "pansari",
+    "version": "0.3.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": { "bundleIdentifier": "in.pansari.express", "supportsTablet": false },
+    "android": { "package": "in.pansari.express", "edgeToEdgeEnabled": true },
+    "web": { "bundler": "metro", "output": "single" },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      ["expo-location", { "locationWhenInUsePermission": "Pansari uses your location to find the nearest store that can deliver to you." }]
+    ],
+    "experiments": { "typedRoutes": false }
+  }
+}

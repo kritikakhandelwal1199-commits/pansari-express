@@ -137,3 +137,11 @@ export function expandBatches(p: DemoProduct, storeId: string, nowMs: number) {
     mrp: p.mrp,
   }));
 }
+
+const box = (s: number, w: number, n: number, e: number) => JSON.stringify({ type: 'Polygon', coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] });
+
+/** Delivery zones (GeoJSON [lng, lat]). Vaishali Nagar is deliberately outside, to show the "not serviceable" path. */
+export const DEMO_ZONES = [
+  { zoneId: 'Z1', name: 'Walled city & Raja Park', geometryJson: box(26.875, 75.78, 26.96, 75.86), storeIds: ['S1'], baseDeliveryFee: 2500, freeDeliveryAbove: 49_900, surgeMultiplierBps: 10_000, isActive: true },
+  { zoneId: 'Z2', name: 'Malviya Nagar & Sanganer', geometryJson: box(26.8, 75.75, 26.875, 75.86), storeIds: ['S2'], baseDeliveryFee: 2500, freeDeliveryAbove: 49_900, surgeMultiplierBps: 10_000, isActive: true },
+];

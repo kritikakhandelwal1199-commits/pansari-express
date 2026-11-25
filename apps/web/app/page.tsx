@@ -2,13 +2,14 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { ArrowRight, Boxes, QrCode, ScanBarcode, Store } from 'lucide-react';
+import { ArrowRight, Bike, Boxes, QrCode, ScanBarcode, Store } from 'lucide-react';
 import { Brand, Qr } from '@/components/common';
 import { Button } from '@/components/ui';
 import { useData, useResource } from '@/lib/data/provider';
 import { toAppPath } from '@/lib/utils';
 
 const tiles = [
+  { href: '/shop', icon: Bike, title: 'Order for delivery', text: 'Shop the nearest store online — 10-minute delivery, UPI, wallet or cash, GST invoice with every order.', tone: 'bg-leaf text-white' },
   { href: '/seller', icon: Boxes, title: 'Seller portal', text: 'Catalogue, stock with batches and expiry, prices per store, GST invoices and the GSTR-1 summary.', tone: 'bg-kum text-kum-ink' },
   { href: '/pos', icon: ScanBarcode, title: 'POS counter', text: 'Scan barcodes, bill in seconds, take cash or UPI, and check out walk-in QR carts.', tone: 'bg-haldi text-[#3a1d05]' },
 ];
@@ -22,16 +23,21 @@ export default function Home() {
     <main className="mx-auto max-w-6xl px-4 pb-16 pt-6 sm:px-6">
       <header className="flex items-center justify-between">
         <Brand sub="Kirana · jadibuti · pooja · shaadi · dry fruits" />
-        <Button variant="outline" size="sm" asChild>
-          <Link href="/login">Staff sign in</Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="leaf" size="sm" asChild>
+            <Link href="/shop">Shop now</Link>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/login">Staff sign in</Link>
+          </Button>
+        </div>
       </header>
 
       <section className="mt-8 grid gap-4 md:grid-cols-[1.25fr_1fr]">
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="rounded-3xl border border-line bg-surface p-6 sm:p-8">
           <h1 className="text-[clamp(30px,4.4vw,48px)] font-extrabold leading-[1.04] tracking-tight text-balance">One stock book for the counter, the QR shelf and online orders.</h1>
           <p className="mt-3 max-w-xl text-[17px] text-muted">Every sale — billed at the till, paid from a customer&apos;s phone after scanning the store QR, or delivered — deducts from the same batches, first-expiry-first, with GST worked out per product.</p>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
             {tiles.map((t) => (
               <Link key={t.href} href={t.href} className={`group rounded-2xl p-4 ${t.tone}`}>
                 <t.icon className="size-6" />

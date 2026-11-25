@@ -14,6 +14,14 @@ import Invoices from '@/app/seller/invoices/page';
 import QrPosters from '@/app/seller/qr/page';
 import Pos from '@/app/pos/page';
 import Store from '@/app/store/page';
+import ShopLayout from '@/app/shop/layout';
+import ShopHome from '@/app/shop/page';
+import ShopCart from '@/app/shop/cart/page';
+import ShopOrders from '@/app/shop/orders/page';
+import ShopOrder from '@/app/shop/orders/view/page';
+import ShopAccount from '@/app/shop/account/page';
+import OnlineOrders from '@/app/seller/orders/page';
+import Support from '@/app/seller/support/page';
 
 (globalThis as { __PX_PREVIEW__?: boolean }).__PX_PREVIEW__ = true;
 const client = new DemoDataClient({ storeUrl: (id, token) => `${location.origin}/store?s=${id}&token=${encodeURIComponent(token)}` });
@@ -25,6 +33,15 @@ const SELLER: Record<string, React.ComponentType> = {
   '/seller/ledger': Ledger,
   '/seller/invoices': Invoices,
   '/seller/qr': QrPosters,
+  '/seller/orders': OnlineOrders,
+  '/seller/support': Support,
+};
+const SHOP: Record<string, React.ComponentType> = {
+  '/shop': ShopHome,
+  '/shop/cart': ShopCart,
+  '/shop/orders': ShopOrders,
+  '/shop/orders/view': ShopOrder,
+  '/shop/account': ShopAccount,
 };
 
 function Routes() {
@@ -37,6 +54,14 @@ function Routes() {
       </SellerLayout>
     );
   }
+  if (path.startsWith('/shop')) {
+    const Page = SHOP[path] ?? ShopHome;
+    return (
+      <ShopLayout>
+        <Page />
+      </ShopLayout>
+    );
+  }
   if (path === '/login') return <Login />;
   if (path === '/pos') return <Pos />;
   if (path === '/store') return <Store />;
@@ -46,10 +71,10 @@ function Routes() {
 function PreviewBar() {
   const path = usePathname();
   const go = (p: string) => () => navigate(p);
-  const items: [string, string][] = [['/', 'Home'], ['/seller', 'Seller portal'], ['/pos', 'POS counter'], ['/seller/qr', 'Store QR → customer']];
+  const items: [string, string][] = [['/', 'Home'], ['/shop', 'Customer shop'], ['/seller/orders', 'Online orders'], ['/seller', 'Seller portal'], ['/pos', 'POS counter'], ['/seller/qr', 'Store QR → customer']];
   return (
     <nav aria-label="Preview" className="no-print sticky top-0 z-[70] flex flex-wrap items-center gap-1 bg-[#1e120b] px-3 py-1.5 text-[13px] text-[#fff6e6]">
-      <span className="mr-2 font-semibold text-[#f2b705]">Phase 2 preview</span>
+      <span className="mr-2 font-semibold text-[#f2b705]">Phase 3 preview</span>
       {items.map(([p, l]) => (
         <button key={p} onClick={go(p)} className={`rounded-full px-3 py-1 font-semibold ${path === p ? 'bg-[#f2b705] text-[#3a1d05]' : 'hover:bg-white/10'}`}>
           {l}

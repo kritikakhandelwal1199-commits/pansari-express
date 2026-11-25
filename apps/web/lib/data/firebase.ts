@@ -40,8 +40,9 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions, httpsCallable, type Functions } from 'firebase/functions';
-import { COL, inventoryDocId, isRole, randomId, TEMP_CART_TTL_SECONDS, type BatchState, type InvoiceComputation } from '@pansari/shared';
-import type { AdjustInput, AppUser, DataClient, GuestCart, HsnRow, InventoryRow, InvoiceRow, InwardInput, LedgerRow, ProductInfo, ProductInput, SaleInput, SaleResult, StoreInfo } from './types';
+import { COL, inventoryDocId, isRole, isValidPincode, randomId, TEMP_CART_TTL_SECONDS, type BatchState, type InvoiceComputation, type OrderStatus } from '@pansari/shared';
+import { LocalGeoProvider } from '@pansari/adapters';
+import type { Address, AddressInput, AdjustInput, AppUser, CustomerProfile, DataClient, DeliveryCheck, GuestCart, HsnRow, InventoryRow, InvoiceRow, InwardInput, LedgerRow, OrderRow, PlaceOrderInput, ProductInfo, ProductInput, SaleInput, SaleResult, StoreInfo, TicketInput, TicketRow, WalletTxn } from './types';
 import { DataError } from './types';
 
 export interface FirebaseClientConfig {
@@ -475,6 +476,194 @@ export class FirebaseDataClient implements DataClient {
     } catch (e) {
       fnError(e);
     }
+  }
+
+  /* ---------------------------------------------- customer: delivery */
+  private geo = new LocalGeoProvider({ maxDistanceMeters: 7000 });
+  private uidOrThrow() {
+    const u = this.staff.auth.currentUser;
+    if (!u || u.isAnonymous) throw new DataError('Sign in with your mobile number', 'UNAUTHENTICATED');
+    return u;
+  }
+  async deliveryStores() {
+    const snap = await getDocs(query(collection(this.staff.db, COL.stores), where('acceptsOnline', '==', true), where('isActive', '==', true)));
+    return snap.docs.map((d) => storeFrom(d.id, d.data()));
+  }
+  async shopCatalog(storeId: string) {
+    const db = this.staff.db;
+    const store = await getDoc(doc(db, COL.stores, storeId));
+    if (!store.exists()) throw new DataError('Store not found');
+    const [inv, prods] = await Promise.all([
+      getDocs(query(collection(db, COL.storeInventory), where('storeId', '==', storeId), where('isListed', '==', true))),
+      getDocs(query(collection(db, COL.products), where('vendorId', '==', store.get('vendorId')), where('isPublished', '==', true), where('complianceStatus', '==', 'APPROVED'))),
+    ]);
+    const pmap = new Map(prods.docs.map((d) => [d.id, productFrom(d.id, d.data())]));
+    return inv.docs
+      .map((d) => d.data())
+      .filter((d) => pmap.has(d.productId) && d.sellingPrice > 0)
+      .map((d) => this.invRow(d, pmap.get(d.productId)!))
+      .sort((a, b) => a.product.name.localeCompare(b.product.name));
+  }
+  async checkDelivery(input: { pincode: string; location?: { lat: number; lng: number } | null }): Promise<DeliveryCheck> {
+    const empty = { storeId: null, storeName: null, etaMinutes: null, distanceMeters: null, baseDeliveryFee: 0, freeDeliveryAbove: 0, surgeMultiplierBps: 10_000 };
+    let p = input.location ?? null;
+    if (!p) {
+      const g = await this.geo.geocodePincode(input.pincode?.trim());
+      if (!g) return { serviceable: false, reason: 'UNKNOWN_PINCODE', ...empty };
+      p = g.center;
+    }
+    const [zones, stores] = await Promise.all([
+      getDocs(query(collection(this.staff.db, COL.zones), where('isActive', '==', true))),
+      getDocs(query(collection(this.staff.db, COL.stores), where('acceptsOnline', '==', true))),
+    ]);
+    const zl = zones.docs.map((z) => ({ zoneId: z.id, name: z.get('name'), geometryJson: z.get('geometryJson'), storeIds: z.get('storeIds') ?? [], isActive: true, d: z.data() }));
+    const r = this.geo.checkServiceability(p, zl, stores.docs.map((s) => ({ storeId: s.id, name: s.get('name'), location: s.get('location'), isActive: s.get('isActive') === true, acceptsOnline: true })));
+    const z = zl.find((x) => x.zoneId === r.zone?.zoneId)?.d;
+    return {
+      serviceable: r.serviceable,
+      reason: r.reason,
+      storeId: r.store?.storeId ?? null,
+      storeName: r.store?.name ?? null,
+      etaMinutes: r.etaMinutes,
+      distanceMeters: r.distanceMeters === null ? null : Math.round(r.distanceMeters),
+      baseDeliveryFee: Number(z?.baseDeliveryFee ?? 0),
+      freeDeliveryAbove: Number(z?.freeDeliveryAbove ?? 0),
+      surgeMultiplierBps: Number(z?.surgeMultiplierBps ?? 10_000),
+    };
+  }
+  async myProfile(): Promise<CustomerProfile> {
+    const u = this.uidOrThrow();
+    const s = await getDoc(doc(this.staff.db, COL.users, u.uid));
+    const d = s.exists() ? s.data() : {};
+    return { uid: u.uid, phone: u.phoneNumber, displayName: d.displayName || u.displayName || null, addresses: (d.addresses as Address[]) ?? [], walletBalance: Number(d.walletBalance ?? 0) };
+  }
+  private async writeProfile(patch: { displayName?: string; addresses?: Address[] }) {
+    const u = this.uidOrThrow();
+    const ref = doc(this.staff.db, COL.users, u.uid);
+    const s = await getDoc(ref);
+    try {
+      if (s.exists()) {
+        await updateDoc(ref, { displayName: patch.displayName ?? s.get('displayName') ?? '', addresses: patch.addresses ?? s.get('addresses') ?? [], updatedAt: serverTimestamp() });
+      } else {
+        await setDoc(ref, { uid: u.uid, displayName: patch.displayName ?? '', phone: u.phoneNumber ?? null, email: null, roleMirror: 'customer', addresses: patch.addresses ?? [], loyaltyPoints: 0, walletBalance: 0, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      }
+    } catch (e) {
+      fnError(e);
+    }
+  }
+  async saveProfileName(displayName: string) {
+    const name = displayName.trim().slice(0, 60);
+    if (name.length < 2) throw new DataError('Enter your name');
+    await this.writeProfile({ displayName: name });
+  }
+  async saveAddress(i: AddressInput): Promise<Address> {
+    const prof = await this.myProfile();
+    if (!i.line1?.trim() || i.line1.trim().length < 4) throw new DataError('Enter house / street');
+    if (!isValidPincode(i.pincode)) throw new DataError('Enter a 6-digit pincode');
+    const g = await this.geo.geocodePincode(i.pincode.trim());
+    if (!g && !i.location) throw new DataError('We could not find this pincode — use "Use my location"');
+    if (!i.id && prof.addresses.length >= 10) throw new DataError('You can save up to 10 addresses');
+    const addr: Address = { id: i.id ?? `a-${randomId(6).replace(/[^A-Za-z0-9]/g, '')}`, label: (i.label?.trim() || 'Home').slice(0, 20), line1: i.line1.trim().slice(0, 120), ...(i.line2?.trim() ? { line2: i.line2.trim().slice(0, 120) } : {}), city: g?.city ?? 'Jaipur', pincode: i.pincode.trim(), stateCode: g?.stateCode ?? '08', location: i.location ?? g!.center };
+    const list = prof.addresses.filter((a) => a.id !== addr.id).concat(addr);
+    await this.writeProfile({ addresses: list });
+    return addr;
+  }
+  async deleteAddress(addressId: string) {
+    const prof = await this.myProfile();
+    await this.writeProfile({ addresses: prof.addresses.filter((a) => a.id !== addressId) });
+  }
+  placeOrder(input: PlaceOrderInput) {
+    return this.call<PlaceOrderInput, { orderId: string; grandTotal: number; etaMinutes: number | null }>(this.staff, 'placeOrder')(input);
+  }
+  private async orderFrom(id: string, d: DocumentData, withOtp: boolean): Promise<OrderRow> {
+    const comp = d.computationJson ? (JSON.parse(d.computationJson) as InvoiceComputation) : null;
+    const charges = (d.charges as { code: string; name: string; amount: number }[]) ?? [];
+    const grand = Number(d.totals?.grandTotal ?? 0);
+    const live = !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(d.status);
+    let otp: string | null = null;
+    if (withOtp && live) otp = (await getDoc(doc(this.staff.db, COL.orderSecrets, id)).catch(() => null))?.get('deliveryOtp') ?? null;
+    const store = await this.getStore(d.storeId).catch(() => null);
+    return {
+      orderId: id,
+      channel: d.channel,
+      storeId: d.storeId,
+      storeName: store?.name ?? d.storeId,
+      status: d.status,
+      statusHistory: d.statusHistory ?? [],
+      lines: ((d.lines as { productId: string; name: string; qty: number; unit: string; unitPrice: number }[]) ?? []).map((l) => ({ productId: l.productId, name: l.name, qty: l.qty, unit: l.unit as OrderRow['lines'][number]['unit'], unitPrice: l.unitPrice })),
+      charges,
+      itemsTotal: grand - charges.reduce((a, c) => a + c.amount, 0) - Number(d.totals?.roundOff ?? 0),
+      totalTax: comp?.totals.totalTax ?? Number(d.totals?.totalTax ?? 0),
+      grandTotal: grand,
+      payment: { method: d.payment?.method, status: d.payment?.status },
+      deliveryAddress: d.deliveryAddress ?? null,
+      etaMinutes: d.etaMinutes ?? null,
+      placedMs: ms(d.createdAt) ?? Date.now(),
+      invoiceId: d.invoiceId ?? null,
+      invoiceNo: d.invoiceNo ?? null,
+      cancelReason: d.cancelReason ?? null,
+      deliveryOtp: withOtp ? otp : null,
+      customerPhone: withOtp ? undefined : d.customerPhone ?? null,
+      customerName: withOtp ? undefined : d.customerName ?? null,
+    };
+  }
+  async myOrders() {
+    const u = this.uidOrThrow();
+    const snap = await getDocs(query(collection(this.staff.db, COL.orders), where('customerUid', '==', u.uid), orderBy('createdAt', 'desc'), limit(30)));
+    return Promise.all(snap.docs.map((d) => this.orderFrom(d.id, d.data(), true)));
+  }
+  async getOrder(orderId: string) {
+    const u = this.uidOrThrow();
+    const s = await getDoc(doc(this.staff.db, COL.orders, orderId)).catch(() => null);
+    if (!s?.exists()) return null;
+    return this.orderFrom(s.id, s.data(), s.get('customerUid') === u.uid);
+  }
+  cancelMyOrder(orderId: string, reason: string) {
+    return this.call<{ orderId: string; reason: string }, { refunded: number }>(this.staff, 'cancelOrder')({ orderId, reason });
+  }
+  async myInvoicePdf(invoiceId: string) {
+    const out = await this.call<{ invoiceId: string; format: string }, { base64: string }>(this.staff, 'getInvoicePdf')({ invoiceId, format: 'A4' });
+    return b64ToBlob(out.base64);
+  }
+  async walletTxns(): Promise<WalletTxn[]> {
+    const u = this.uidOrThrow();
+    const snap = await getDocs(query(collection(this.staff.db, COL.walletTxns), where('uid', '==', u.uid), orderBy('at', 'desc'), limit(50)));
+    return snap.docs.map((d) => ({ id: d.id, kind: d.get('kind'), amount: d.get('amount'), balanceAfter: d.get('balanceAfter'), refId: d.get('refId') ?? null, note: d.get('note') ?? null, atMs: ms(d.get('at')) ?? 0 }));
+  }
+  topUpWallet(amount: number, simulateOutcome?: 'success' | 'fail') {
+    return this.call<{ amount: number; simulateOutcome?: string }, { balance: number }>(this.staff, 'topUpWallet')({ amount, simulateOutcome });
+  }
+
+  /* ---------------------------------------------- operator: online orders */
+  async listOnlineOrders(storeId: string, opts: { includeClosed?: boolean } = {}) {
+    const store = await this.getStore(storeId);
+    const snap = await getDocs(query(collection(this.staff.db, COL.orders), where('vendorId', '==', store?.vendorId ?? '-'), where('storeId', '==', storeId), where('channel', '==', 'ONLINE'), orderBy('createdAt', 'desc'), limit(opts.includeClosed ? 200 : 60)));
+    const dayAgo = Date.now() - 86_400_000;
+    const rows = await Promise.all(snap.docs.map((d) => this.orderFrom(d.id, d.data(), false)));
+    return rows.filter((o) => opts.includeClosed || !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(o.status) || o.placedMs > dayAgo);
+  }
+  advanceOrder(orderId: string, to: OrderStatus, opts: { otp?: string; reason?: string } = {}) {
+    return this.call<{ orderId: string; to: OrderStatus; otp?: string; reason?: string }, { status: OrderStatus; invoiceNo: string | null }>(this.staff, 'advanceOrder')({ orderId, to, ...opts });
+  }
+
+  /* ---------------------------------------------- support */
+  createSupportTicket(input: TicketInput) {
+    const ctx = this.staff.auth.currentUser ? this.staff : this.guest;
+    return this.call<TicketInput, { ticketId: string }>(ctx, 'createSupportTicket')(input);
+  }
+  async listSupportTickets(): Promise<TicketRow[]> {
+    const u = this.user();
+    const base = collection(this.staff.db, COL.supportTickets);
+    const q =
+      u.role === 'seller' ? query(base, where('vendorId', '==', u.vendorId ?? '-'), orderBy('createdAt', 'desc'), limit(100))
+      : u.role === 'staff' ? query(base, where('vendorId', '==', u.vendorId ?? '-'), where('storeId', 'in', (u.storeIds ?? ['-']).slice(0, 30)), orderBy('createdAt', 'desc'), limit(100))
+      : u.role === 'super_admin' || u.role === 'compliance' ? query(base, orderBy('createdAt', 'desc'), limit(100))
+      : query(base, where('createdBy', '==', u.uid), orderBy('createdAt', 'desc'), limit(50));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, category: d.get('category'), subject: d.get('subject'), orderId: d.get('orderId') ?? null, storeId: d.get('storeId') ?? null, status: d.get('status'), priority: d.get('priority'), createdBy: d.get('createdBy'), creatorRole: d.get('creatorRole'), createdMs: ms(d.get('createdAt')) ?? 0, transcript: d.get('transcript') ?? [] }));
+  }
+  async setTicketStatus(ticketId: string, status: TicketRow['status']) {
+    await this.call(this.staff, 'setTicketStatus')({ ticketId, status });
   }
 }
 
