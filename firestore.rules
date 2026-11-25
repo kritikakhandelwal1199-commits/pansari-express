@@ -265,9 +265,15 @@ service cloud.firestore {
     // riders/{uid} — rider may toggle shift and push location; money is server-only.
     // ---------------------------------------------------------------
     match /riders/{uid} {
-      allow read: if (isRider() && request.auth.uid == uid) || isCompliance() || isSuper();
+      // Store operators see the riders who work from their store (to assign orders, take COD cash).
+      allow read: if (isRider() && request.auth.uid == uid)
+        || operatesStore(resource.data.get('homeStoreId', ''), resource.data.get('vendorId', ''))
+        || isCompliance() || isSuper();
+      // Normally created by setUserRole (with homeStoreId + vendorId). A self-created doc has neither,
+      // so it is invisible to stores until the admin assigns a home store.
       allow create: if isRider() && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['uid', 'name', 'phone', 'vehicleType', 'vehicleNumber', 'kycStatus', 'isOnline', 'lastLocation', 'lastSeenAt', 'homeStoreId', 'codCashInHand', 'earningsBalance', 'activeOrderIds'])
+        && request.resource.data.homeStoreId == null
         && request.resource.data.uid == uid
         && request.resource.data.phone == tok().get('phone_number', '')
         && request.resource.data.vehicleType in ['BICYCLE', 'SCOOTER', 'MOTORCYCLE', 'EV']
@@ -280,6 +286,8 @@ service cloud.firestore {
         && changedOnly(['isOnline', 'lastLocation', 'lastSeenAt'])
         && request.resource.data.isOnline is bool
         && (request.resource.data.isOnline == false || resource.data.kycStatus == 'VERIFIED')
+        // cannot go off shift while carrying orders
+        && (request.resource.data.isOnline == true || resource.data.get('activeOrderIds', []).size() == 0)
         && (request.resource.data.lastLocation == null
             || (request.resource.data.lastLocation.lat is number
                 && request.resource.data.lastLocation.lat >= -90 && request.resource.data.lastLocation.lat <= 90
@@ -294,7 +302,14 @@ service cloud.firestore {
     // ---------------------------------------------------------------
     match /kyc_documents/{docId} {
       allow create: if (isSeller() || isRider())
+        && request.resource.data.keys().hasOnly(['ownerUid', 'ownerType', 'vendorId', 'docType', 'storagePath', 'fileName', 'maskedConfirmed', 'status', 'reviewerUid', 'reviewNote', 'createdAt', 'reviewedAt'])
         && request.resource.data.ownerUid == request.auth.uid
+        && (isSeller()
+            ? request.resource.data.docType in ['GSTIN_CERT', 'FSSAI_LICENSE', 'PAN', 'CANCELLED_CHEQUE']
+            : request.resource.data.docType in ['DRIVING_LICENSE', 'VEHICLE_RC', 'AADHAAR_MASKED'])
+        // Aadhaar only as a masked copy (last 4 digits) — the uploader must confirm it.
+        && (request.resource.data.docType != 'AADHAAR_MASKED' || request.resource.data.get('maskedConfirmed', false) == true)
+        && request.resource.data.fileName is string && request.resource.data.fileName.size() <= 100
         && request.resource.data.ownerType == (isSeller() ? 'VENDOR' : 'RIDER')
         && request.resource.data.vendorId == (isSeller() ? myVendor() : null)
         && request.resource.data.docType in ['GSTIN_CERT', 'FSSAI_LICENSE', 'PAN', 'DRIVING_LICENSE', 'VEHICLE_RC', 'AADHAAR_MASKED', 'CANCELLED_CHEQUE']
@@ -346,6 +361,14 @@ service cloud.firestore {
         && request.resource.data.reviewerUid == request.auth.uid
         && request.resource.data.reviewStatus in ['OK', 'ACTION_REQUIRED'];
       allow delete: if false;
+    }
+
+    // rider_cash_ledger — COD cash collected / handed in. Server-written.
+    match /rider_cash_ledger/{entryId} {
+      allow read: if (isRider() && resource.data.riderUid == request.auth.uid)
+        || operatesStore(resource.data.storeId, resource.data.vendorId)
+        || isCompliance() || isSuper();
+      allow write: if false;
     }
 
     match /recalls/{recallId} {

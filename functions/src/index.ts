@@ -3,6 +3,7 @@
  * Phase 1: identity, walk-in QR sessions, admin audit.
  * Phase 2: catalogue, pricing, stock movements, counter / QR billing, invoice PDFs.
  * Phase 3: online delivery orders, wallet, support tickets.
+ * Phase 4: super admin (users, zones, HSN), riders + COD cash, KYC review, recalls.
  */
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
@@ -38,7 +39,30 @@ export const setUserRole = onCall({ enforceAppCheck: ENFORCE_APP_CHECK, consumeA
   if (!caller) throw new HttpsError('unauthenticated', 'Sign in first');
   if (caller.token.role !== 'super_admin') throw new HttpsError('permission-denied', 'Only a super admin can assign roles');
 
-  const input = req.data as RoleChangeInput;
+  const raw = (req.data ?? {}) as RoleChangeInput & { phone?: string; displayName?: string; homeStoreId?: string | null };
+  // Phase 4: find (or create) the account by phone so the owner can add staff / riders before they sign in.
+  let uid = typeof raw.uid === 'string' ? raw.uid : '';
+  if (!uid && typeof raw.phone === 'string') {
+    const phone = raw.phone.replace(/\s+/g, '');
+    if (!/^\+91[6-9]\d{9}$/.test(phone)) throw new HttpsError('invalid-argument', 'Enter a valid Indian mobile number');
+    const found = await adminAuth.getUserByPhoneNumber(phone).catch(() => null);
+    uid = (found ?? (await adminAuth.createUser({ phoneNumber: phone, displayName: raw.displayName?.trim().slice(0, 60) || undefined }))).uid;
+  }
+  const input: RoleChangeInput = { uid, role: raw.role, vendorId: raw.vendorId, storeIds: raw.storeIds };
+  let homeStore: { id: string; vendorId: string } | null = null;
+  if (raw.role === 'rider') {
+    const hs = typeof raw.homeStoreId === 'string' ? raw.homeStoreId : '';
+    const s = hs ? await db.collection(COL.stores).doc(hs).get() : null;
+    if (!s?.exists || s.get('acceptsOnline') !== true) throw new HttpsError('invalid-argument', 'Pick the store this rider collects orders from');
+    homeStore = { id: s.id, vendorId: String(s.get('vendorId')) };
+  } else if (raw.homeStoreId) throw new HttpsError('invalid-argument', 'A home store applies only to riders');
+  const riderRef = db.collection(COL.riders).doc(uid || '_');
+  const riderBefore = uid ? await riderRef.get() : null;
+  if (riderBefore?.exists) {
+    const active = (riderBefore.get('activeOrderIds') as string[] | undefined) ?? [];
+    if (active.length && (raw.role !== 'rider' || riderBefore.get('homeStoreId') !== homeStore?.id)) throw new HttpsError('failed-precondition', 'This rider is carrying orders — let them finish first');
+    if (Number(riderBefore.get('codCashInHand') ?? 0) > 0 && raw.role !== 'rider') throw new HttpsError('failed-precondition', 'This rider still holds cash — the store must receive it first');
+  }
   let before: PansariClaims = {};
   try {
     const claims = await buildClaims(input, caller.uid, {
@@ -70,9 +94,16 @@ export const setUserRole = onCall({ enforceAppCheck: ENFORCE_APP_CHECK, consumeA
     if (isPrivilegeReduction(before, claims)) await adminAuth.revokeRefreshTokens(input.uid);
     const userRef = db.collection(COL.users).doc(input.uid);
     if ((await userRef.get()).exists) await userRef.update({ roleMirror: claims.role, updatedAt: new Date() });
+    if (raw.displayName?.trim()) await adminAuth.updateUser(input.uid, { displayName: raw.displayName.trim().slice(0, 60) });
+    if (homeStore) {
+      const u = await adminAuth.getUser(input.uid);
+      if (riderBefore?.exists) await riderRef.update({ homeStoreId: homeStore.id, vendorId: homeStore.vendorId, name: u.displayName ?? riderBefore.get('name') ?? 'Rider' });
+      else await riderRef.set({ uid: input.uid, name: u.displayName ?? 'Rider', phone: u.phoneNumber ?? '', vehicleType: 'SCOOTER', vehicleNumber: null, kycStatus: 'PENDING', isOnline: false, lastLocation: null, lastSeenAt: null, homeStoreId: homeStore.id, vendorId: homeStore.vendorId, codCashInHand: 0, earningsBalance: 0, activeOrderIds: [] });
+    } else if (riderBefore?.exists) await riderRef.update({ isOnline: false });
     await writeAudit({ actorUid: caller.uid, actorRole: 'super_admin', action: 'role.set', target: { collection: 'auth_users', id: input.uid }, before, after: claims, ip: req.rawRequest.ip ?? null });
     logger.info('role.set', { target: input.uid, role: claims.role, by: caller.uid });
-    return { ok: true, claims, note: 'The user must refresh their ID token (sign in again or getIdToken(true)) to receive the new role.' };
+    const u = await adminAuth.getUser(input.uid);
+    return { uid: u.uid, phone: u.phoneNumber ?? null, displayName: u.displayName ?? null, role: claims.role, vendorId: claims.vendorId ?? null, storeIds: claims.storeIds ?? [], homeStoreId: homeStore?.id ?? null, note: 'The user must sign in again to receive the new role.' };
   } catch (e) {
     if (e instanceof RoleError) throw new HttpsError(e.code, e.message);
     throw e;
@@ -133,8 +164,10 @@ export const qrSessionClaim = onRequest({ secrets: [QR_HMAC_KEYS, EDGE_SHARED_SE
 /* ------------------------------------------------------------------ */
 /* Audit every direct super-admin write to master data                  */
 /* ------------------------------------------------------------------ */
-function auditTrigger(collection: string) {
+function auditTrigger(collection: string, opts: { skipServerWrites?: boolean } = {}) {
   return onDocumentWrittenWithAuthContext(`${collection}/{docId}`, async (event) => {
+    // Writes made by our own callables (Admin SDK) are already audited with the real caller.
+    if (opts.skipServerWrites && event.authType === 'service_account') return;
     const before = event.data?.before.exists ? event.data.before.data() : null;
     const after = event.data?.after.exists ? event.data.after.data() : null;
     const action = !before ? 'create' : !after ? 'delete' : 'update';
@@ -150,8 +183,8 @@ function auditTrigger(collection: string) {
 }
 
 export const auditStores = auditTrigger(COL.stores);
-export const auditZones = auditTrigger(COL.zones);
-export const auditHsnMaster = auditTrigger(COL.hsnMaster);
+export const auditZones = auditTrigger(COL.zones, { skipServerWrites: true });
+export const auditHsnMaster = auditTrigger(COL.hsnMaster, { skipServerWrites: true });
 export const auditPlatformConfig = auditTrigger(COL.platformConfig);
 
 /* ------------------------------------------------------------------ */
@@ -161,3 +194,4 @@ export { upsertProduct, reviewProduct, setStorePrice, inwardStock, adjustStock }
 export { commitSale, getInvoicePdf } from './sales/commitSale.js';
 export { bootstrapBusiness } from './setup/bootstrap.js';
 export { placeOrder, cancelOrder, advanceOrder, topUpWallet, createSupportTicket, setTicketStatus } from './orders/onlineOrders.js';
+export { listUsers, saveZone, upsertHsn, saveRiderProfile, setRiderShift, assignRider, receiveCodCash, onKycUploaded, reviewKyc, createRecall, completeRecall } from './ops/phase4.js';

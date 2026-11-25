@@ -1,7 +1,8 @@
 'use client';
 import * as React from 'react';
 import { Bike, KeyRound, Loader2, MapPin, Phone, RefreshCw } from 'lucide-react';
-import { nextForwardStatus, operatorCanCancel, type OrderStatus } from '@pansari/shared';
+import { nextForwardStatus, operatorCanCancel, riderHasPicked, type OrderStatus } from '@pansari/shared';
+import { RiderPicker } from '@/components/phase4';
 import { ErrorNote, useToast } from '@/components/common';
 import { PageHead, useSeller } from '@/components/seller';
 import { Badge, Button, Card, Dialog, DialogContent, EmptyState, Field, Input, Segmented, Skeleton } from '@/components/ui';
@@ -15,6 +16,7 @@ const NEXT_LABEL: Partial<Record<OrderStatus, string>> = {
   PICKING: 'Start packing',
   PACKED: 'Mark packed',
   OUT_FOR_DELIVERY: 'Send out (issues GST bill)',
+  HANDED_TO_RIDER: 'Hand to rider (issues GST bill)',
   DELIVERED: 'Delivered — enter code',
 };
 
@@ -41,7 +43,7 @@ export default function OnlineOrdersPage() {
     setErr(null);
     try {
       const r = await data.advanceOrder(o.orderId, to, extra);
-      toast({ tone: 'good', text: r.invoiceNo && to === 'OUT_FOR_DELIVERY' ? `On the way · invoice ${r.invoiceNo}` : `Order ${ORDER_STATUS[r.status].label.toLowerCase()}` });
+      toast({ tone: 'good', text: r.invoiceNo && (to === 'OUT_FOR_DELIVERY' || to === 'HANDED_TO_RIDER') ? `${to === 'HANDED_TO_RIDER' ? 'With the rider' : 'On the way'} · invoice ${r.invoiceNo}` : `Order ${ORDER_STATUS[r.status].label.toLowerCase()}` });
       setOtpFor(null);
       setCancelFor(null);
       setOtp('');
@@ -78,7 +80,8 @@ export default function OnlineOrdersPage() {
       <div className="grid gap-3 lg:grid-cols-2">
         {list.map((o) => {
           const st = ORDER_STATUS[o.status];
-          const next = nextForwardStatus(o.status);
+          const withRider = !!o.riderUid && riderHasPicked(o.status);
+          const next = withRider ? null : o.riderUid && o.status === 'PACKED' ? 'HANDED_TO_RIDER' : nextForwardStatus(o.status);
           return (
             <Card key={o.orderId} className="grid gap-3">
               <div className="flex items-start justify-between gap-3">
@@ -120,12 +123,18 @@ export default function OnlineOrdersPage() {
                   </div>
                 ) : null}
                 {o.cancelReason ? <div className="font-semibold text-danger">{o.cancelReason}</div> : null}
+                {withRider ? (
+                  <div className="flex items-center gap-2 font-semibold">
+                    <Bike className="size-4 text-muted" /> {o.status === 'DELIVERED' ? `Delivered by ${o.riderName ?? 'the rider'}` : `${o.riderName ?? 'Rider'} has this order — they confirm delivery with the customer’s code`}
+                  </div>
+                ) : null}
               </div>
-              {next || operatorCanCancel(o.status) ? (
+              <RiderPicker order={o} storeId={storeId} onDone={orders.reload} />
+              {next || (operatorCanCancel(o.status) && !withRider) ? (
                 <div className="flex flex-wrap gap-2">
                   {next ? (
                     <Button variant={next === 'DELIVERED' ? 'leaf' : 'default'} disabled={busyId === o.orderId} onClick={() => (next === 'DELIVERED' ? setOtpFor(o) : move(o, next))}>
-                      {busyId === o.orderId ? <Loader2 className="size-4 animate-spin" /> : next === 'DELIVERED' ? <KeyRound className="size-4" /> : next === 'OUT_FOR_DELIVERY' ? <Bike className="size-4" /> : null}
+                      {busyId === o.orderId ? <Loader2 className="size-4 animate-spin" /> : next === 'DELIVERED' ? <KeyRound className="size-4" /> : next === 'OUT_FOR_DELIVERY' || next === 'HANDED_TO_RIDER' ? <Bike className="size-4" /> : null}
                       {NEXT_LABEL[next]}
                     </Button>
                   ) : null}

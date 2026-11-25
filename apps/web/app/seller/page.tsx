@@ -17,6 +17,8 @@ export default function Dashboard() {
   const from = startOfIstDay();
   const invoices = useResource(() => (user.role === 'super_admin' ? Promise.resolve([]) : data.listInvoices({ fromMs: from, toMs: Date.now() + 60_000, storeId: storeId || undefined })), [data, storeId]);
   const stock = useResource(() => (storeId && user.role !== 'super_admin' ? data.listInventory(storeId) : Promise.resolve([])), [data, storeId]);
+  const recalls = useResource(() => (user.role === 'super_admin' ? Promise.resolve([]) : data.listRecalls()), [data]);
+  const activeRecalls = (recalls.data ?? []).filter((r) => r.status === 'ACTIVE');
 
   if (user.role === 'super_admin') return <AdminHome />;
 
@@ -46,6 +48,18 @@ export default function Dashboard() {
           </>
         }
       />
+      {activeRecalls.length ? (
+        <div className="mb-4 grid gap-1 rounded-2xl border border-danger/30 bg-danger/8 p-4 text-sm" role="alert">
+          <div className="flex items-center gap-2 font-bold text-danger">
+            <AlertTriangle className="size-4" /> Product recall — keep these off the shelf
+          </div>
+          {activeRecalls.map((r) => (
+            <div key={r.id}>
+              <b>{r.productName}</b> · {r.batchNumbers.length ? `batch ${r.batchNumbers.join(', ')}` : 'all batches'} — {r.reason}. Stock was already written off; set any packets aside for return.
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {invoices.loading ? (
           Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-[104px] rounded-2xl" />)
@@ -140,13 +154,18 @@ function AdminHome() {
   const pending = (products.data ?? []).filter((p) => p.complianceStatus === 'PENDING_REVIEW');
   return (
     <>
-      <PageHead title="Admin" sub="Listings waiting for compliance review" />
+      <PageHead title="Admin" sub="You are viewing the seller portal as super admin." />
       <Card>
         <CardTitle>{pending.length} product{pending.length === 1 ? '' : 's'} to review</CardTitle>
-        <p className="mt-1 text-sm text-muted">Approve listings from the Products page. Unapproved products can still be billed at the counter but are hidden from walk-in and online customers.</p>
-        <Button className="mt-4" asChild>
-          <Link href="/seller/products">Review products</Link>
-        </Button>
+        <p className="mt-1 text-sm text-muted">Unapproved products can still be billed at the counter but are hidden from walk-in and online customers.</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button asChild>
+            <Link href="/admin/review">Review listings</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/admin">Open the admin portal</Link>
+          </Button>
+        </div>
       </Card>
     </>
   );

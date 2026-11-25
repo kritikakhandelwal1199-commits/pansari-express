@@ -2,7 +2,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookText, Bike, Boxes, FileText, LayoutGrid, LifeBuoy, LogOut, Package, QrCode, ScanBarcode } from 'lucide-react';
+import { BadgeCheck, BookText, Bike, Boxes, FileText, LayoutGrid, LifeBuoy, LogOut, Package, PackageCheck, QrCode, ScanBarcode, Users } from 'lucide-react';
 import { ChatWidget } from '@/components/ChatWidget';
 import { Brand, RequireStaff, useSelectedStore } from '@/components/common';
 import { Button, Select } from '@/components/ui';
@@ -14,11 +14,13 @@ import { cn } from '@/lib/utils';
 const NAV = [
   { href: '/seller', label: 'Dashboard', icon: LayoutGrid, roles: ['seller', 'staff', 'super_admin'] },
   { href: '/seller/orders', label: 'Online orders', icon: Bike, roles: ['seller', 'staff'] },
+  { href: '/seller/riders', label: 'Riders & cash', icon: Users, roles: ['seller', 'staff'] },
   { href: '/seller/products', label: 'Products', icon: Package, roles: ['seller', 'super_admin'] },
   { href: '/seller/inventory', label: 'Stock', icon: Boxes, roles: ['seller', 'staff'] },
   { href: '/seller/ledger', label: 'Stock ledger', icon: BookText, roles: ['seller', 'staff'] },
   { href: '/seller/invoices', label: 'Invoices & GST', icon: FileText, roles: ['seller', 'staff'] },
   { href: '/seller/qr', label: 'Store QR', icon: QrCode, roles: ['seller'] },
+  { href: '/seller/kyc', label: 'Business KYC', icon: BadgeCheck, roles: ['seller'] },
   { href: '/seller/support', label: 'Help requests', icon: LifeBuoy, roles: ['seller', 'staff', 'super_admin'] },
 ];
 
@@ -61,6 +63,11 @@ function Shell({ user, children }: { user: AppUser; children: React.ReactNode })
                 </Link>
               );
             })}
+            {user.role !== 'super_admin' ? (
+              <Link href="/staff" className="flex h-10 shrink-0 items-center gap-2.5 rounded-xl px-3 text-[14px] font-semibold text-muted hover:bg-surface-2 hover:text-ink lg:mt-3">
+                <PackageCheck className="size-4" /> Staff app (pick, count)
+              </Link>
+            ) : null}
             {user.role !== 'super_admin' ? (
               <Link href="/pos" className="flex h-10 shrink-0 items-center gap-2.5 rounded-xl bg-haldi px-3 text-[14px] font-bold text-[#3a1d05] lg:mt-3">
                 <ScanBarcode className="size-4" /> Open POS counter

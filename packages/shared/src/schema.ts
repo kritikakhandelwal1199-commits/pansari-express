@@ -34,6 +34,8 @@ export const COL = {
   invoices: 'invoices',
   counters: 'counters',
   riders: 'riders',
+  /** rider_cash_ledger/{id} — COD cash collected by riders and handed in at stores. Server-written. */
+  riderCash: 'rider_cash_ledger',
   kycDocuments: 'kyc_documents',
   supportTickets: 'support_tickets',
   complianceChecks: 'compliance_checks',
@@ -416,9 +418,24 @@ export interface RiderDoc {
   lastLocation: GeoPoint | null; // rider-writable
   lastSeenAt: Ts | null; // rider-writable
   homeStoreId: string | null;
+  /** Business the rider delivers for (lets store operators see riders of their stores). Server-set. */
+  vendorId: string | null;
   codCashInHand: Paise; // server-only
   earningsBalance: Paise; // server-only
   activeOrderIds: string[]; // server-only
+}
+
+/** rider_cash_ledger/{id} — append-only. COLLECT on a COD delivery, DEPOSIT at a store counter. */
+export interface RiderCashDoc {
+  riderUid: string;
+  vendorId: string;
+  storeId: string;
+  kind: 'COLLECT' | 'DEPOSIT';
+  amount: Paise; // + collect, - deposit
+  balanceAfter: Paise;
+  orderId: string | null;
+  confirmedBy: string | null;
+  at: Ts;
 }
 
 export type KycDocType = 'GSTIN_CERT' | 'FSSAI_LICENSE' | 'PAN' | 'DRIVING_LICENSE' | 'VEHICLE_RC' | 'AADHAAR_MASKED' | 'CANCELLED_CHEQUE';
@@ -429,6 +446,7 @@ export interface KycDocumentDoc {
   vendorId: string | null;
   docType: KycDocType;
   storagePath: string;
+  fileName?: string;
   status: KycStatus;
   reviewerUid: string | null;
   reviewNote: string | null;
@@ -472,7 +490,10 @@ export interface RecallDoc {
   reason: string;
   initiatedBy: string;
   status: 'ACTIVE' | 'COMPLETED';
+  /** Units pulled off shelves when the recall was raised. */
+  unitsRemoved?: number;
   createdAt: Ts;
+  completedAt?: Ts | null;
 }
 
 /** audit_logs/{id} — append-only, written by functions only, never deletable. */

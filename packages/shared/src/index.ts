@@ -14,3 +14,6 @@ export * from './gst/gstr1.js';
 export * from './seed/demoSeed.js';
 export * from './orders/online.js';
 export * from './support/chatbot.js';
+export * from './ops/riders.js';
+export * from './ops/picking.js';
+export * from './ops/compliance.js';

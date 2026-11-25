@@ -116,6 +116,7 @@ export const reviewProduct = onCall(async (req) => {
   const ref = db.collection(COL.products).doc(productId);
   const snap = await ref.get();
   if (!snap.exists) throw new HttpsError('not-found', 'Product not found');
+  if (snap.get('complianceStatus') === 'RECALLED') throw new HttpsError('failed-precondition', 'This product is under recall — it cannot be re-approved here');
   await ref.update({ complianceStatus: decision, complianceNote: note || null, isPublished: decision === 'APPROVED', updatedAt: FieldValue.serverTimestamp() });
   await writeAudit({ actorUid: c.uid, actorRole: c.role as 'compliance', action: `product.${decision.toLowerCase()}`, target: { collection: COL.products, id: productId }, after: { note } });
   return { ok: true };

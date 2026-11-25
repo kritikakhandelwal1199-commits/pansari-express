@@ -174,3 +174,45 @@ describe('super admin tax master', () => {
     await assertFails(setDoc(doc(ctx.seller(), 'hsn_master/2914'), row));
   });
 });
+
+describe('phase 4 — riders, COD cash, KYC', () => {
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (c) => {
+      const db = c.firestore();
+      await setDoc(doc(db, 'riders/rider2'), { uid: 'rider2', name: 'Vikram', vendorId: 'V1', homeStoreId: 'S1', kycStatus: 'VERIFIED', isOnline: true, lastLocation: null, lastSeenAt: null, codCashInHand: 19500, activeOrderIds: ['o1'] });
+      await setDoc(doc(db, 'riders/rider3'), { uid: 'rider3', name: 'Asha', vendorId: 'V1', homeStoreId: 'S1', kycStatus: 'VERIFIED', isOnline: true, lastLocation: null, lastSeenAt: null, codCashInHand: 0, activeOrderIds: [] });
+      await setDoc(doc(db, 'rider_cash_ledger/c1'), { riderUid: 'rider2', vendorId: 'V1', storeId: 'S1', kind: 'COLLECT', amount: 19500, balanceAfter: 19500, orderId: 'o1', confirmedBy: null });
+    });
+  });
+
+  it('store operators see riders of their own store only', async () => {
+    await assertSucceeds(getDocs(query(collection(ctx.staff(['S1']), 'riders'), where('vendorId', '==', 'V1'), where('homeStoreId', '==', 'S1'))));
+    await assertFails(getDoc(doc(ctx.staff(['S2']), 'riders/rider2')));
+    await assertFails(getDoc(doc(ctx.customer(), 'riders/rider2')));
+    await assertSucceeds(getDoc(doc(ctx.seller(), 'riders/rider2')));
+  });
+
+  it('a rider cannot go off shift while carrying orders, or touch cash fields', async () => {
+    await assertFails(updateDoc(doc(ctx.rider('rider2'), 'riders/rider2'), { isOnline: false, lastSeenAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(ctx.rider('rider3'), 'riders/rider3'), { isOnline: false, lastSeenAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(ctx.rider('rider2'), 'riders/rider2'), { codCashInHand: 0, lastSeenAt: serverTimestamp() }));
+  });
+
+  it('COD cash ledger: rider and their store read, nobody writes', async () => {
+    await assertSucceeds(getDocs(query(collection(ctx.rider('rider2'), 'rider_cash_ledger'), where('riderUid', '==', 'rider2'))));
+    await assertSucceeds(getDoc(doc(ctx.staff(['S1']), 'rider_cash_ledger/c1')));
+    await assertFails(getDoc(doc(ctx.staff(['S2']), 'rider_cash_ledger/c1')));
+    await assertFails(getDoc(doc(ctx.rider('rider3'), 'rider_cash_ledger/c1')));
+    await assertFails(setDoc(doc(ctx.rider('rider2'), 'rider_cash_ledger/c2'), { riderUid: 'rider2', vendorId: 'V1', storeId: 'S1', kind: 'DEPOSIT', amount: -19500 }));
+  });
+
+  it('KYC upload: rider documents only, Aadhaar must be confirmed masked', async () => {
+    const base = (docType: string, extra: Record<string, unknown> = {}) => ({ ownerUid: 'rider2', ownerType: 'RIDER', vendorId: null, docType, storagePath: 'kyc/rider2/x.jpg', fileName: 'x.jpg', status: 'PENDING', reviewerUid: null, reviewNote: null, reviewedAt: null, createdAt: serverTimestamp(), ...extra });
+    const db = ctx.rider('rider2');
+    await assertFails(setDoc(doc(db, 'kyc_documents/k1'), base('AADHAAR_MASKED')));
+    await assertSucceeds(setDoc(doc(db, 'kyc_documents/k2'), base('AADHAAR_MASKED', { maskedConfirmed: true })));
+    await assertSucceeds(setDoc(doc(db, 'kyc_documents/k3'), base('DRIVING_LICENSE')));
+    await assertFails(setDoc(doc(db, 'kyc_documents/k4'), base('GSTIN_CERT')));
+    await assertFails(setDoc(doc(db, 'kyc_documents/k5'), base('DRIVING_LICENSE', { status: 'VERIFIED' })));
+  });
+});

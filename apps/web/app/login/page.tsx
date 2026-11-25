@@ -12,7 +12,10 @@ function LoginInner() {
   const { user } = useStaff();
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get('next') || '/seller';
+  const asked = params.get('next');
+  const next = asked || '/seller';
+  /** Without an explicit destination, each role lands in its own app. */
+  const landing = (role: string) => (asked ? next : ({ staff: '/staff', rider: '/rider', compliance: '/compliance', super_admin: '/admin', customer: '/shop' } as Record<string, string>)[role] ?? '/seller');
   const [phone, setPhone] = React.useState('');
   const [code, setCode] = React.useState('');
   const [vid, setVid] = React.useState<string | null>(null);
@@ -46,7 +49,7 @@ function LoginInner() {
     setError(null);
     try {
       const u = await data.verifyOtp(vid, c);
-      router.replace(u.role === 'staff' && next === '/seller' ? '/pos' : next);
+      router.replace(landing(u.role));
     } catch (e) {
       setError(errMsg(e));
     } finally {
@@ -59,7 +62,7 @@ function LoginInner() {
     try {
       const r = await data.sendOtp(p);
       const u = await data.verifyOtp(r.verificationId, '123456');
-      router.replace(u.role === 'staff' && next === '/seller' ? '/pos' : next);
+      router.replace(landing(u.role));
     } catch (e) {
       setError(errMsg(e));
     } finally {

@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { ArrowRight, Bike, Boxes, QrCode, ScanBarcode, Store } from 'lucide-react';
+import { ArrowRight, Bike, Boxes, IdCard, PackageCheck, QrCode, ScanBarcode, ShieldCheck, Store, Truck } from 'lucide-react';
 import { Brand, Qr } from '@/components/common';
 import { Button } from '@/components/ui';
 import { useData, useResource } from '@/lib/data/provider';
@@ -66,6 +66,28 @@ export default function Home() {
             </Button>
           ) : null}
         </motion.div>
+      </section>
+
+      <section className="mt-4 rounded-3xl border border-line bg-surface p-5 sm:p-6">
+        <h2 className="text-lg font-bold">Team apps</h2>
+        <p className="mt-1 text-[14px] text-muted">Each person signs in with their mobile number and lands in their own app. Open them on a phone.</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { href: '/staff', icon: PackageCheck, title: 'Staff app', text: 'Pick orders shelf by shelf with the exact batch, receive stock, count shelves.' },
+            { href: '/rider', icon: Truck, title: 'Rider app', text: 'Go on shift, collect bags, deliver with the customer’s code, hand in cash.' },
+            { href: '/compliance', icon: IdCard, title: 'Compliance', text: 'Verify rider and business KYC, approve listings, raise batch recalls.' },
+            { href: '/admin', icon: ShieldCheck, title: 'Super admin', text: 'Roles, delivery zones and fees, the GST tax master and the audit log.' },
+          ].map((t) => (
+            <Link key={t.href} href={t.href} className="group rounded-2xl border border-line p-4 hover:border-haldi">
+              <t.icon className="size-5 text-kum" />
+              <div className="mt-2 flex items-center gap-2 font-bold">
+                {t.title}
+                <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
+              </div>
+              <p className="mt-1 text-[13px] text-muted">{t.text}</p>
+            </Link>
+          ))}
+        </div>
       </section>
 
       <section className="mt-4 grid gap-4 sm:grid-cols-3">

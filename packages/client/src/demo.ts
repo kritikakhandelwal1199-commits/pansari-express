@@ -52,9 +52,34 @@ import {
   planCancelRestock,
   refundOnCancel,
   WALLET_TOPUP_MAX,
+  ASSIGNABLE_ROLES,
+  ASSIGNABLE_STATUSES,
+  buildPickList,
+  checkAssignRider,
+  checkRiderStep,
+  ComplianceError,
+  MAX_STAFF_STORES,
+  planCodDeposit,
+  planRecall,
+  planRiderDelivered,
+  productsAffectedByHsn,
+  recalledInOrder,
+  riderHasPicked,
+  RIDER_KYC_DOCS,
+  RIDER_VEHICLES,
+  normaliseVehicleNo,
+  RiderError,
+  rollupKyc,
+  validateHsn,
+  validateZone,
+  VENDOR_KYC_DOCS,
+  type HsnInput,
+  type KycStatus,
+  type RiderVehicle,
+  type ZoneInput,
 } from '@pansari/shared';
 import { LocalGeoProvider, MockGstProvider } from '@pansari/adapters';
-import type { Address, AddressInput, AdjustInput, AppUser, CustomerProfile, DataClient, DeliveryCheck, GuestCart, HsnRow, InventoryRow, InvoiceRow, InwardInput, LedgerRow, OrderRow, PlaceOrderInput, ProductInfo, ProductInput, SaleInput, SaleResult, StoreInfo, TicketInput, TicketRow, WalletTxn } from './types';
+import type { Address, AddressInput, AdjustInput, AppUser, AuditRow, CustomerProfile, DataClient, DeliveryCheck, GuestCart, HsnRow, InventoryRow, InvoiceRow, InwardInput, KycDocRow, KycUploadInput, LedgerRow, OrderRow, PickTask, PlaceOrderInput, ProductInfo, ProductInput, RecallInput, RecallResult, RecallRow, RiderCashRow, RiderProfile, RoleInput, SaleInput, SaleResult, StoreInfo, TicketInput, TicketRow, UserRow, WalletTxn, ZoneRow } from './types';
 import { DataError } from './types';
 
 const KEY = 'pansari-demo-v3';
@@ -102,6 +127,15 @@ interface OrderRec {
   cancelReason: string | null;
   otpHash: string;
   otp: string; // demo only: the customer's copy (production keeps it in order_secrets)
+  riderUid?: string | null;
+}
+type RiderRec = Omit<RiderProfile, 'lastSeenMs'> & { vendorId: string; lastSeenMs: number | null; lastLocation: { lat: number; lng: number } | null };
+interface KycRec extends KycDocRow {
+  dataUrl: string | null;
+}
+interface RecallRec extends RecallRow {
+  vendorId: string;
+  matchedBatchIds: string[];
 }
 interface Profile {
   displayName: string | null;
@@ -125,14 +159,26 @@ interface State {
   usedNonces: string[];
   users: Record<string, AppUser>; // by phone
   seq: number;
+  /* Phase 4 */
+  zones: ZoneRow[];
+  audit: AuditRow[];
+  riders: Record<string, RiderRec>; // by uid
+  kyc: KycRec[];
+  vendorKyc: Record<string, KycStatus>;
+  riderCash: RiderCashRow[];
+  recalls: RecallRec[];
 }
 
 const ACCOUNTS: { phone: string; label: string; note: string; user: Omit<AppUser, 'uid' | 'phone' | 'isAnonymous'> }[] = [
   { phone: '+919999999991', label: 'Shop owner', note: 'All stores, prices, catalogue, QR posters', user: { displayName: 'Shop owner', role: 'seller', vendorId: 'V1', storeIds: [] } },
   { phone: '+919999999992', label: 'Sales boy · Johari Bazaar', note: 'Billing and stock at one store', user: { displayName: 'Ramesh', role: 'staff', vendorId: 'V1', storeIds: ['S1'] } },
   { phone: '+919999999993', label: 'Storekeeper · Godown', note: 'Receiving stock at the godown', user: { displayName: 'Kalu', role: 'staff', vendorId: 'V1', storeIds: ['G1'] } },
-  { phone: '+919999999990', label: 'Super admin', note: 'Approves product listings', user: { displayName: 'Admin', role: 'super_admin' } },
+  { phone: '+919999999990', label: 'Super admin · Rahul', note: 'Roles, delivery zones, GST tax master, product review, audit log', user: { displayName: 'Rahul (admin)', role: 'super_admin' } },
   { phone: '+919999999994', label: 'Customer · Priya', note: 'Online delivery shopping, saved address, ₹200 wallet', user: { displayName: 'Priya Sharma', role: 'customer' } },
+  { phone: '+919999999998', label: 'Picker · Sunita', note: 'Packs online orders at Johari Bazaar, receives stock, counts shelves', user: { displayName: 'Sunita', role: 'staff', vendorId: 'V1', storeIds: ['S1'] } },
+  { phone: '+919999999995', label: 'Rider · Vikram', note: 'Documents verified — go on shift, pick up, deliver with code, hand in cash', user: { displayName: 'Vikram Singh', role: 'rider' } },
+  { phone: '+919999999996', label: 'Rider · Arjun (new)', note: 'New rider — upload documents for verification', user: { displayName: 'Arjun Meena', role: 'rider' } },
+  { phone: '+919999999997', label: 'Compliance · Meera', note: 'KYC review, listing review, product recalls', user: { displayName: 'Meera Joshi', role: 'compliance' } },
 ];
 
 function seed(): State {
@@ -154,6 +200,13 @@ function seed(): State {
     usedNonces: [],
     users: {},
     seq: 1,
+    zones: [],
+    audit: [],
+    riders: {},
+    kyc: [],
+    vendorKyc: {},
+    riderCash: [],
+    recalls: [],
   };
   for (const a of ACCOUNTS) st.users[a.phone] = { uid: `u-${a.phone.slice(-4)}`, phone: a.phone, isAnonymous: false, ...a.user };
   st.profiles['u-9994'] = {
@@ -191,7 +244,45 @@ function seed(): State {
       st.batches[id] = expandBatches(p, storeId, now);
     }
   }
+  migrate(st, now);
   return st;
+}
+
+/** Fills in Phase 4 data for demo states saved by an older version (keeps the user's orders and stock). */
+function migrate(st: State, now = Date.now()): State {
+  st.zones ??= DEMO_ZONES.map((z) => ({ ...z, storeIds: [...z.storeIds] }));
+  if (!st.zones.length) st.zones = DEMO_ZONES.map((z) => ({ ...z, storeIds: [...z.storeIds] }));
+  st.audit ??= [];
+  st.riders ??= {};
+  st.kyc ??= [];
+  st.vendorKyc ??= {};
+  st.riderCash ??= [];
+  st.recalls ??= [];
+  for (const a of ACCOUNTS) st.users[a.phone] ??= { uid: `u-${a.phone.slice(-4)}`, phone: a.phone, isAnonymous: false, ...a.user };
+  const day = 86_400_000;
+  if (!st.riders['u-9995']) {
+    st.riders['u-9995'] = { uid: 'u-9995', name: 'Vikram Singh', phone: '+919999999995', vehicleType: 'MOTORCYCLE', vehicleNumber: 'RJ14 CK 4821', kycStatus: 'VERIFIED', isOnline: false, homeStoreId: 'S1', vendorId: DEMO_VENDOR.vendorId, codCashInHand: 0, earningsBalance: 0, activeOrderIds: [], lastSeenMs: null, lastLocation: null };
+    for (const [i, t] of RIDER_KYC_DOCS.entries()) {
+      st.kyc.push({ id: `k-v${i}`, ownerUid: 'u-9995', ownerType: 'RIDER', ownerName: 'Vikram Singh', vendorId: null, docType: t, fileName: `${t.toLowerCase()}.jpg`, status: 'VERIFIED', reviewNote: null, createdMs: now - 20 * day, reviewedMs: now - 19 * day, dataUrl: null });
+    }
+  }
+  if (!st.riders['u-9996']) {
+    st.riders['u-9996'] = { uid: 'u-9996', name: 'Arjun Meena', phone: '+919999999996', vehicleType: 'SCOOTER', vehicleNumber: null, kycStatus: 'PENDING', isOnline: false, homeStoreId: 'S1', vendorId: DEMO_VENDOR.vendorId, codCashInHand: 0, earningsBalance: 0, activeOrderIds: [], lastSeenMs: null, lastLocation: null };
+  }
+  if (!st.kyc.some((k) => k.ownerType === 'VENDOR')) {
+    const owner = st.users['+919999999991']!.uid;
+    VENDOR_KYC_DOCS.forEach((t, i) => st.kyc.push({ id: `k-s${i}`, ownerUid: owner, ownerType: 'VENDOR', ownerName: DEMO_VENDOR.tradeName, vendorId: DEMO_VENDOR.vendorId, docType: t, fileName: `${t.toLowerCase()}.pdf`, status: t === 'CANCELLED_CHEQUE' ? 'PENDING' : 'VERIFIED', reviewNote: null, createdMs: now - 30 * day + i, reviewedMs: t === 'CANCELLED_CHEQUE' ? null : now - 29 * day, dataUrl: null }));
+    st.vendorKyc[DEMO_VENDOR.vendorId] = 'UNDER_REVIEW';
+  }
+  if (!st.audit.length) st.audit.push({ id: 'au-seed', actorUid: 'system', actorRole: 'system', action: 'demo.seed', target: { collection: 'platform_config', id: 'demo' }, before: null, after: JSON.stringify({ stores: st.stores.length, products: Object.keys(st.products).length }), atMs: now });
+  return st;
+}
+
+async function blobToDataUrl(b: Blob): Promise<string> {
+  const buf = new Uint8Array(await b.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  return `data:${b.type || 'application/octet-stream'};base64,${btoa(bin)}`;
 }
 
 function parseIstDate(v: string | null, endOfDay: boolean): number | null {
@@ -206,6 +297,7 @@ function wrap(e: unknown): never {
   if (e instanceof DataError) throw e;
   if (e instanceof StockError) throw new DataError(e.message, e.code, { productId: e.productId, available: e.available });
   if (e instanceof GstValidationError) throw new DataError(e.message, 'GST_INVALID');
+  if (e instanceof RiderError || e instanceof ComplianceError) throw new DataError(e.message, e.code);
   if (e instanceof TokenError) throw new DataError(e.code === 'EXPIRED' ? 'This QR code has expired' : 'This QR code is not genuine', `QR_${e.code}`);
   throw e;
 }
@@ -235,13 +327,14 @@ export class DemoDataClient implements DataClient {
   constructor(private opts: DemoOptions = {}) {
     this.ls = opts.storage === undefined ? safeStorage('localStorage') : opts.storage;
     this.ss = opts.sessionStorage === undefined ? safeStorage('sessionStorage') : opts.sessionStorage;
-    this.st = this.load() ?? seed();
+    const loaded = this.load();
+    this.st = loaded ? migrate(loaded) : seed();
     // Keep tabs in sync (e.g. POS in one tab, customer phone view in another).
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' && this.ls && !opts.noWindowSync) {
       window.addEventListener('storage', (e) => {
         if (e.key === KEY && e.newValue) {
           try {
-            this.st = JSON.parse(e.newValue) as State;
+            this.st = migrate(JSON.parse(e.newValue) as State);
           } catch {}
         }
       });
@@ -354,7 +447,7 @@ export class DemoDataClient implements DataClient {
   /* -------------------------------------------------- catalogue */
   async listStores() {
     const u = this.me();
-    return this.st.stores.filter((s) => u.role === 'super_admin' || (u.vendorId === s.vendorId && (u.role === 'seller' ? !(u.storeIds?.length) || u.storeIds.includes(s.storeId) : u.storeIds?.includes(s.storeId))));
+    return this.st.stores.filter((s) => u.role === 'super_admin' || u.role === 'compliance' || (u.vendorId === s.vendorId && (u.role === 'seller' ? !(u.storeIds?.length) || u.storeIds.includes(s.storeId) : u.storeIds?.includes(s.storeId))));
   }
   async getStore(storeId: string) {
     return this.st.stores.find((s) => s.storeId === storeId) ?? null;
@@ -410,9 +503,13 @@ export class DemoDataClient implements DataClient {
     if (u.role !== 'super_admin' && u.role !== 'compliance') throw new DataError('Compliance only', 'PERMISSION_DENIED');
     const p = this.st.products[productId];
     if (!p) throw new DataError('Product not found');
+    if (p.complianceStatus === 'RECALLED') throw new DataError('This product is under recall — it cannot be re-approved here');
+    if (decision === 'REJECTED' && (!note || note.trim().length < 3)) throw new DataError('Tell the shop what to fix');
+    const before = p.complianceStatus;
     p.complianceStatus = decision;
-    p.complianceNote = note ?? null;
+    p.complianceNote = note?.trim() || null;
     p.isPublished = decision === 'APPROVED';
+    this.audit(u, 'product.review', 'products', productId, { complianceStatus: before }, { complianceStatus: decision, note: p.complianceNote });
     this.save();
   }
 
@@ -424,12 +521,12 @@ export class DemoDataClient implements DataClient {
   }
   async listInventory(storeId: string) {
     const u = this.me();
-    if (!this.operates(u, storeId) && u.role !== 'super_admin') throw new DataError('You do not operate this store', 'PERMISSION_DENIED');
+    if (!this.operates(u, storeId) && u.role !== 'super_admin' && u.role !== 'compliance') throw new DataError('You do not operate this store', 'PERMISSION_DENIED');
     return Object.values(this.st.inv).filter((r) => r.storeId === storeId).map((r) => this.row(r)).sort((a, b) => a.product.name.localeCompare(b.product.name));
   }
   async listBatches(storeId: string, productId: string) {
     const u = this.me();
-    if (!this.operates(u, storeId) && u.role !== 'super_admin') throw new DataError('You do not operate this store', 'PERMISSION_DENIED');
+    if (!this.operates(u, storeId) && u.role !== 'super_admin' && u.role !== 'compliance') throw new DataError('You do not operate this store', 'PERMISSION_DENIED');
     return (this.st.batches[inventoryDocId(storeId, productId)] ?? []).map((b) => ({ ...b }));
   }
   async setStorePrice(storeId: string, productId: string, sellingPrice: number) {
@@ -497,7 +594,7 @@ export class DemoDataClient implements DataClient {
   }
   async listLedger(storeId: string, max = 200) {
     const u = this.me();
-    if (!this.operates(u, storeId) && u.role !== 'super_admin') throw new DataError('You do not operate this store', 'PERMISSION_DENIED');
+    if (!this.operates(u, storeId) && u.role !== 'super_admin' && u.role !== 'compliance') throw new DataError('You do not operate this store', 'PERMISSION_DENIED');
     return this.st.ledger.filter((l) => l.storeId === storeId).slice(0, max);
   }
 
@@ -650,8 +747,8 @@ export class DemoDataClient implements DataClient {
       if (!g) return { serviceable: false, reason: 'UNKNOWN_PINCODE', ...empty };
       p = g.center;
     }
-    const r = this.geo.checkServiceability(p, DEMO_ZONES, this.st.stores.map((s) => ({ storeId: s.storeId, name: s.name, location: s.location, isActive: s.isActive, acceptsOnline: s.acceptsOnline })));
-    const zone = r.zone ? DEMO_ZONES.find((z) => z.zoneId === r.zone!.zoneId)! : null;
+    const r = this.geo.checkServiceability(p, this.st.zones, this.st.stores.map((s) => ({ storeId: s.storeId, name: s.name, location: s.location, isActive: s.isActive, acceptsOnline: s.acceptsOnline })));
+    const zone = r.zone ? this.st.zones.find((z) => z.zoneId === r.zone!.zoneId)! : null;
     return {
       serviceable: r.serviceable,
       reason: r.reason,
@@ -792,6 +889,9 @@ export class DemoDataClient implements DataClient {
       deliveryOtp: forCustomer && live ? o.otp : null,
       customerPhone: forCustomer ? undefined : o.customerPhone,
       customerName: forCustomer ? undefined : o.customerName,
+      riderUid: o.riderUid ?? null,
+      riderName: o.riderUid ? this.st.riders[o.riderUid]?.name ?? null : null,
+      riderPhone: o.riderUid && live ? this.st.riders[o.riderUid]?.phone ?? null : null,
     };
   }
   async myOrders() {
@@ -803,7 +903,7 @@ export class DemoDataClient implements DataClient {
     const o = this.st.orders.find((x) => x.orderId === orderId);
     if (!o) return null;
     if (o.customerUid === u.uid) return this.orderRow(o, true);
-    if (this.operates(u, o.storeId) || u.role === 'super_admin') return this.orderRow(o, false);
+    if (this.operates(u, o.storeId) || u.role === 'super_admin' || u.role === 'compliance' || (u.role === 'rider' && o.riderUid === u.uid)) return this.orderRow(o, false);
     return null;
   }
   private restock(o: OrderRec, by: string) {
@@ -834,6 +934,7 @@ export class DemoDataClient implements DataClient {
     if (!o || o.customerUid !== u.uid) throw new DataError('Order not found');
     if (!customerCanCancel(o.status)) throw new DataError('The store has started packing this order, so it cannot be cancelled here. Use Help to contact the shop.', 'TOO_LATE');
     const refunded = this.closeAsCancelled(o, 'CANCELLED', reason?.trim().slice(0, 140) || 'Cancelled by customer', u.uid);
+    this.releaseRider(o);
     this.save();
     return { refunded };
   }
@@ -869,18 +970,46 @@ export class DemoDataClient implements DataClient {
     const u = this.me();
     const o = this.st.orders.find((x) => x.orderId === orderId);
     if (!o) throw new DataError('Order not found');
-    if (!this.operates(u, o.storeId)) throw new DataError('You do not operate this store', 'PERMISSION_DENIED');
-    if (!canTransition(o.status, to)) throw new DataError(`Cannot move an order from ${o.status} to ${to}`, 'BAD_TRANSITION');
+    const asRider = u.role === 'rider';
+    if (asRider) {
+      try {
+        checkRiderStep(u.uid, { riderUid: o.riderUid ?? null, status: o.status }, to);
+      } catch (e) {
+        wrap(e);
+      }
+    } else {
+      if (!this.operates(u, o.storeId)) throw new DataError('You do not operate this store', 'PERMISSION_DENIED');
+      if (!canTransition(o.status, to)) throw new DataError(`Cannot move an order from ${o.status} to ${to}`, 'BAD_TRANSITION');
+      if (o.riderUid && riderHasPicked(o.status)) throw new DataError('The rider has this order — they update it from the rider app', 'RIDER_HAS_ORDER');
+      if (to === 'HANDED_TO_RIDER' && !o.riderUid) throw new DataError('Assign a rider first', 'NO_RIDER');
+      if (to === 'OUT_FOR_DELIVERY' && o.riderUid) throw new DataError('A rider is assigned — hand the bag to the rider instead', 'RIDER_ASSIGNED');
+    }
     if (to === 'CANCELLED' || to === 'REJECTED') {
       if (!operatorCanCancel(o.status)) throw new DataError('Too late to cancel');
       const reason = opts.reason?.trim();
       if (!reason || reason.length < 3) throw new DataError('Write a short reason for the customer');
       this.closeAsCancelled(o, to, reason, u.uid);
+      this.releaseRider(o);
+      this.audit(u, `order.${to.toLowerCase()}`, 'orders', o.orderId, null, { reason });
       this.save();
       return { status: o.status, invoiceNo: null };
     }
+    if (isDispatch(to)) {
+      const held = recalledInOrder(o.lines, this.recalledBatchIds(o.storeId));
+      if (held.length) throw new DataError(`Recalled stock in this order (${held.join(', ')}). Cancel it and ask the customer to order again.`, 'RECALLED_STOCK');
+    }
     if (to === 'DELIVERED') {
       if (!opts.otp || (await hashDeliveryOtp(o.orderId, opts.otp)) !== o.otpHash) throw new DataError('Wrong delivery code — ask the customer for the 4-digit code', 'BAD_OTP');
+      const rider = o.riderUid ? this.st.riders[o.riderUid] : undefined;
+      if (rider) {
+        const plan = planRiderDelivered(rider, { orderId: o.orderId, paymentMethod: o.payment.method, paymentStatus: o.payment.status, grandTotal: o.computation.totals.grandTotal });
+        rider.activeOrderIds = plan.activeOrderIds;
+        rider.earningsBalance += plan.earning;
+        if (plan.cashCollected > 0) {
+          rider.codCashInHand = plan.codCashInHand;
+          this.st.riderCash.unshift({ id: this.id('rc-'), riderUid: rider.uid, storeId: o.storeId, kind: 'COLLECT', amount: plan.cashCollected, balanceAfter: rider.codCashInHand, orderId: o.orderId, confirmedBy: null, atMs: Date.now() });
+        }
+      }
       if (o.payment.method === 'COD') o.payment.status = 'PAID';
     }
     if (isDispatch(to) && !o.invoiceId) {
@@ -897,25 +1026,396 @@ export class DemoDataClient implements DataClient {
     }
     o.status = to;
     o.statusHistory.push({ status: to, at: Date.now(), by: u.uid });
+    if (isDispatch(to) || to === 'DELIVERED') this.audit(u, `order.${to.toLowerCase()}`, 'orders', o.orderId, null, { invoiceNo: o.invoiceNo });
     this.save();
     return { status: o.status, invoiceNo: o.invoiceNo };
+  }
+
+  private recalledBatchIds(storeId: string): Set<string> {
+    const out = new Set<string>();
+    for (const [key, list] of Object.entries(this.st.batches)) if (key.startsWith(`${storeId}_`)) for (const b of list) if (b.recalled) out.add(b.batchId);
+    return out;
+  }
+  private releaseRider(o: OrderRec) {
+    const r = o.riderUid ? this.st.riders[o.riderUid] : undefined;
+    if (r) r.activeOrderIds = r.activeOrderIds.filter((x) => x !== o.orderId);
   }
 
   async demoAdvanceOrder(orderId: string) {
     const me = this.me();
     const o = this.st.orders.find((x) => x.orderId === orderId);
     if (!o || o.customerUid !== me.uid) throw new DataError('Order not found');
-    const to = nextForwardStatus(o.status);
+    const to = o.riderUid && o.status === 'PACKED' ? 'HANDED_TO_RIDER' : nextForwardStatus(o.status);
     if (!to) throw new DataError('This order is already finished');
-    const owner = Object.values(this.st.users).find((u) => u.role === 'seller' && u.vendorId === this.store(o.storeId).vendorId);
+    const riderTurn = o.riderUid && (o.status === 'PACKED' || riderHasPicked(o.status));
+    const owner = riderTurn
+      ? Object.values(this.st.users).find((u) => u.uid === o.riderUid)
+      : Object.values(this.st.users).find((u) => u.role === 'seller' && u.vendorId === this.store(o.storeId).vendorId);
     if (!owner) throw new DataError('No shop owner in the demo data');
     const prev = this.staff;
-    this.staff = owner; // act as the shop for one step, then switch back (demo only)
+    this.staff = owner; // act as the shop (or its rider) for one step, then switch back (demo only)
     try {
       return await this.advanceOrder(orderId, to, { otp: o.otp });
     } finally {
       this.staff = prev;
     }
+  }
+
+  /* -------------------------------------------------- Phase 4 · helpers */
+  private audit(actor: AppUser | null, action: string, collection: string, id: string, before: unknown, after: unknown) {
+    this.st.audit.unshift({ id: this.id('au-'), actorUid: actor?.uid ?? 'system', actorRole: actor?.role ?? 'system', action, target: { collection, id }, before: before == null ? null : JSON.stringify(before), after: after == null ? null : JSON.stringify(after), atMs: Date.now() });
+    if (this.st.audit.length > 1000) this.st.audit.length = 1000;
+  }
+  private requireRole(...roles: AppUser['role'][]) {
+    const u = this.me();
+    if (!roles.includes(u.role)) throw new DataError('You do not have access to this', 'PERMISSION_DENIED');
+    return u;
+  }
+  private userRow(u: AppUser): UserRow {
+    return { uid: u.uid, phone: u.phone, displayName: u.displayName, role: u.role === 'anonymous' ? 'customer' : u.role, vendorId: u.vendorId ?? null, storeIds: [...(u.storeIds ?? [])], homeStoreId: this.st.riders[u.uid]?.homeStoreId ?? null };
+  }
+  private riderRow(r: RiderRec): RiderProfile {
+    const { vendorId: _v, lastLocation: _l, ...rest } = r;
+    return { ...rest, activeOrderIds: [...r.activeOrderIds] };
+  }
+  private ensureRider(u: AppUser, homeStoreId: string | null = null): RiderRec {
+    return (this.st.riders[u.uid] ??= { uid: u.uid, name: u.displayName ?? 'Rider', phone: u.phone ?? '', vehicleType: 'SCOOTER', vehicleNumber: null, kycStatus: 'PENDING', isOnline: false, homeStoreId, vendorId: DEMO_VENDOR.vendorId, codCashInHand: 0, earningsBalance: 0, activeOrderIds: [], lastSeenMs: null, lastLocation: null });
+  }
+  private kycRow(k: KycRec): KycDocRow {
+    const { dataUrl: _d, ...row } = k;
+    return { ...row };
+  }
+  private rollupOwner(ownerUid: string, ownerType: 'VENDOR' | 'RIDER', vendorId: string | null): KycStatus {
+    const docs = this.st.kyc.filter((k) => (ownerType === 'RIDER' ? k.ownerUid === ownerUid && k.ownerType === 'RIDER' : k.ownerType === 'VENDOR' && k.vendorId === vendorId));
+    const status = rollupKyc(docs, ownerType === 'RIDER' ? RIDER_KYC_DOCS : VENDOR_KYC_DOCS);
+    if (ownerType === 'RIDER') {
+      const r = this.st.riders[ownerUid];
+      if (r) {
+        r.kycStatus = status;
+        if (status !== 'VERIFIED') r.isOnline = false;
+      }
+    } else if (vendorId) this.st.vendorKyc[vendorId] = status;
+    return status;
+  }
+
+  /* -------------------------------------------------- Phase 4 · super admin */
+  async listUsers() {
+    this.requireRole('super_admin');
+    return Object.values(this.st.users).map((u) => this.userRow(u)).sort((a, b) => a.role.localeCompare(b.role) || (a.displayName ?? '').localeCompare(b.displayName ?? ''));
+  }
+  async setUserRole(i: RoleInput) {
+    const me = this.requireRole('super_admin');
+    if (!(ASSIGNABLE_ROLES as readonly string[]).includes(i.role)) throw new DataError(`Role "${i.role}" cannot be assigned`);
+    let target = i.uid ? Object.values(this.st.users).find((u) => u.uid === i.uid) : undefined;
+    if (!target && i.phone) {
+      const phone = i.phone.replace(/\s+/g, '');
+      if (!/^\+91[6-9]\d{9}$/.test(phone)) throw new DataError('Enter a valid Indian mobile number');
+      target = this.st.users[phone] ??= { uid: `u-${phone.slice(-4)}${randomId(2)}`, phone, displayName: i.displayName?.trim() || null, role: 'customer', isAnonymous: false };
+    }
+    if (!target) throw new DataError('User not found — enter their mobile number', 'NOT_FOUND');
+    const before = this.userRow(target);
+    if (target.role === 'super_admin' && i.role !== 'super_admin') {
+      if (target.uid === me.uid) throw new DataError('You cannot remove your own super admin role');
+      if (Object.values(this.st.users).filter((u) => u.role === 'super_admin').length <= 1) throw new DataError('At least one super admin must remain');
+    }
+    let vendorId: string | undefined;
+    let storeIds: string[] | undefined;
+    if (i.role === 'seller' || i.role === 'staff') {
+      vendorId = i.vendorId || DEMO_VENDOR.vendorId;
+      if (vendorId !== DEMO_VENDOR.vendorId) throw new DataError(`Vendor ${vendorId} does not exist`);
+      storeIds = [...new Set(i.storeIds ?? [])];
+      if (storeIds.length > MAX_STAFF_STORES) throw new DataError(`At most ${MAX_STAFF_STORES} stores per user`);
+      if (i.role === 'staff' && !storeIds.length) throw new DataError('Pick at least one store for staff');
+      for (const sid of storeIds) if (this.store(sid).vendorId !== vendorId) throw new DataError(`Store ${sid} belongs to another business`);
+    } else if (i.storeIds?.length) throw new DataError('Stores apply only to the shop owner and staff');
+    let homeStoreId: string | null = null;
+    if (i.role === 'rider') {
+      homeStoreId = i.homeStoreId || null;
+      if (!homeStoreId) throw new DataError('Pick the store this rider collects orders from');
+      if (!this.store(homeStoreId).acceptsOnline) throw new DataError('Riders work from a store that delivers');
+    } else if (i.homeStoreId) throw new DataError('A home store applies only to riders');
+    const r = this.st.riders[target.uid];
+    if (r && r.activeOrderIds.length && (i.role !== 'rider' || r.homeStoreId !== homeStoreId)) throw new DataError('This rider is carrying orders — let them finish first');
+    if (r && r.codCashInHand > 0 && i.role !== 'rider') throw new DataError('This rider still holds cash — the store must receive it first');
+    Object.assign(target, { role: i.role, vendorId, storeIds });
+    if (i.displayName?.trim()) target.displayName = i.displayName.trim().slice(0, 60);
+    if (i.role === 'rider') {
+      const rec = this.ensureRider(target, homeStoreId);
+      rec.homeStoreId = homeStoreId;
+      rec.name = target.displayName ?? rec.name;
+    } else if (r) r.isOnline = false;
+    const after = this.userRow(target);
+    this.audit(me, 'role.set', 'auth_users', target.uid, before, after);
+    this.save();
+    return after;
+  }
+  async listZones() {
+    return this.st.zones.map((z) => ({ ...z, storeIds: [...z.storeIds] }));
+  }
+  async saveZone(i: ZoneInput) {
+    const me = this.requireRole('super_admin');
+    let z;
+    try {
+      z = validateZone(i, this.st.stores.filter((s) => s.acceptsOnline && s.isActive).map((s) => s.storeId));
+    } catch (e) {
+      wrap(e);
+    }
+    const zoneId = i.zoneId ?? `Z${this.st.zones.length + 1}${randomId(2)}`;
+    const row: ZoneRow = { zoneId, name: z.name, geometryJson: z.geometryJson, storeIds: z.storeIds, baseDeliveryFee: z.baseDeliveryFee, freeDeliveryAbove: z.freeDeliveryAbove, surgeMultiplierBps: z.surgeMultiplierBps, isActive: z.isActive };
+    const idx = this.st.zones.findIndex((x) => x.zoneId === zoneId);
+    const before = idx >= 0 ? { ...this.st.zones[idx]!, geometryJson: undefined } : null;
+    if (idx >= 0) this.st.zones[idx] = row;
+    else this.st.zones.push(row);
+    this.audit(me, idx >= 0 ? 'zones.update' : 'zones.create', 'zones', zoneId, before, { ...row, geometryJson: undefined });
+    this.save();
+    return { ...row };
+  }
+  async upsertHsn(i: HsnInput) {
+    const me = this.requireRole('super_admin');
+    let h;
+    try {
+      h = validateHsn(i);
+    } catch (e) {
+      wrap(e);
+    }
+    const idx = this.st.hsn.findIndex((x) => x.hsnCode === h.hsnCode);
+    const before = idx >= 0 ? { ...this.st.hsn[idx]! } : null;
+    if (idx >= 0) this.st.hsn[idx] = h;
+    else this.st.hsn.push(h);
+    this.st.hsn.sort((a, b) => a.hsnCode.localeCompare(b.hsnCode));
+    const changes = productsAffectedByHsn(Object.values(this.st.products), this.st.hsn);
+    for (const c of changes) this.st.products[c.productId]!.gstSlab = c.to;
+    this.audit(me, idx >= 0 ? 'hsn_master.update' : 'hsn_master.create', 'hsn_master', h.hsnCode, before, { ...h, productsUpdated: changes.length });
+    this.save();
+    return { productsUpdated: changes.length };
+  }
+  async listAudit(opts: { max?: number; actionPrefix?: string } = {}) {
+    this.requireRole('super_admin', 'compliance');
+    return this.st.audit.filter((a) => !opts.actionPrefix || a.action.startsWith(opts.actionPrefix)).slice(0, opts.max ?? 200).map((a) => ({ ...a, target: { ...a.target } }));
+  }
+  async listAllProducts() {
+    this.requireRole('super_admin', 'compliance');
+    return Object.values(this.st.products).map((p) => ({ ...p })).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /* -------------------------------------------------- Phase 4 · staff picker */
+  async pickTask(orderId: string): Promise<PickTask> {
+    const u = this.me();
+    const o = this.st.orders.find((x) => x.orderId === orderId);
+    if (!o || !this.operates(u, o.storeId)) throw new DataError('Order not found');
+    const shelf = Object.fromEntries(
+      o.lines.map((l) => {
+        const id = inventoryDocId(o.storeId, l.productId);
+        return [l.productId, { aisleBinCode: this.st.inv[id]?.aisleBinCode ?? '', barcode: this.st.products[l.productId]?.barcode ?? null, batches: this.st.batches[id] ?? [] }];
+      }),
+    );
+    return { order: this.orderRow(o, false), lines: buildPickList(o.lines, shelf) };
+  }
+
+  /* -------------------------------------------------- Phase 4 · rider */
+  private rider(): { u: AppUser; r: RiderRec } {
+    const u = this.requireRole('rider');
+    return { u, r: this.ensureRider(u) };
+  }
+  async myRider() {
+    const { r } = this.rider();
+    this.save();
+    return this.riderRow(r);
+  }
+  async saveRiderProfile(patch: { name: string; vehicleType: RiderVehicle; vehicleNumber: string | null }) {
+    const { u, r } = this.rider();
+    const name = patch.name?.trim().slice(0, 60);
+    if (!name || name.length < 2) throw new DataError('Enter your name');
+    if (!(RIDER_VEHICLES as readonly string[]).includes(patch.vehicleType)) throw new DataError('Choose your vehicle');
+    const no = normaliseVehicleNo(patch.vehicleNumber);
+    if (patch.vehicleType !== 'BICYCLE' && !no) throw new DataError('Enter the vehicle number as on the RC, e.g. RJ14 CK 4821');
+    Object.assign(r, { name, vehicleType: patch.vehicleType, vehicleNumber: patch.vehicleType === 'BICYCLE' ? null : no });
+    u.displayName = name;
+    this.save();
+  }
+  async setRiderShift(online: boolean, location?: { lat: number; lng: number } | null) {
+    const { r } = this.rider();
+    if (online && r.kycStatus !== 'VERIFIED') throw new DataError('Your documents must be verified before you can go on shift', 'KYC_NOT_VERIFIED');
+    if (!online && r.activeOrderIds.length) throw new DataError('Finish your deliveries before going off shift', 'HAS_ORDERS');
+    r.isOnline = online;
+    r.lastSeenMs = Date.now();
+    if (location) r.lastLocation = location;
+    this.save();
+  }
+  async myKycDocs() {
+    const u = this.requireRole('rider', 'seller');
+    return this.st.kyc.filter((k) => (u.role === 'rider' ? k.ownerUid === u.uid && k.ownerType === 'RIDER' : k.ownerType === 'VENDOR' && k.vendorId === u.vendorId)).sort((a, b) => b.createdMs - a.createdMs).map((k) => this.kycRow(k));
+  }
+  async uploadKyc(i: KycUploadInput) {
+    const u = this.requireRole('rider', 'seller');
+    const ownerType = u.role === 'rider' ? 'RIDER' : 'VENDOR';
+    const allowed = ownerType === 'RIDER' ? RIDER_KYC_DOCS : VENDOR_KYC_DOCS;
+    if (!allowed.includes(i.docType)) throw new DataError('This document is not needed for your account');
+    if (i.docType === 'AADHAAR_MASKED' && !i.maskedConfirmed) throw new DataError('Upload a masked Aadhaar (only the last 4 digits visible) and tick the box to confirm');
+    if (!i.file || i.file.size === 0) throw new DataError('Choose a photo or PDF');
+    if (i.file.size > 10 * 1024 * 1024) throw new DataError('File must be under 10 MB');
+    if (i.file.type && !/^(image\/(jpeg|png|webp)|application\/pdf)$/.test(i.file.type)) throw new DataError('Upload a JPG, PNG, WEBP photo or a PDF');
+    const vendorId = ownerType === 'VENDOR' ? u.vendorId ?? null : null;
+    if (ownerType === 'RIDER') this.ensureRider(u);
+    const rec: KycRec = {
+      id: this.id('k-'),
+      ownerUid: u.uid,
+      ownerType,
+      ownerName: ownerType === 'RIDER' ? this.st.riders[u.uid]?.name ?? u.displayName : DEMO_VENDOR.tradeName,
+      vendorId,
+      docType: i.docType,
+      fileName: i.fileName.slice(0, 100),
+      status: 'PENDING',
+      reviewNote: null,
+      createdMs: Date.now(),
+      reviewedMs: null,
+      // demo keeps small files so compliance can view them; large ones keep only the name
+      dataUrl: i.file.size <= 350 * 1024 ? await blobToDataUrl(i.file) : null,
+    };
+    this.st.kyc.unshift(rec);
+    // keep localStorage small: only the latest 12 files keep their content
+    this.st.kyc.filter((k) => k.dataUrl).slice(12).forEach((k) => (k.dataUrl = null));
+    this.rollupOwner(u.uid, ownerType, vendorId);
+    this.save();
+    return this.kycRow(rec);
+  }
+  async riderOrders() {
+    const { u } = this.rider();
+    const dayAgo = Date.now() - 86_400_000;
+    return this.st.orders.filter((o) => o.riderUid === u.uid && (!['DELIVERED', 'CANCELLED', 'REJECTED'].includes(o.status) || o.placedMs > dayAgo)).map((o) => this.orderRow(o, false));
+  }
+  async riderCash(riderUid?: string) {
+    const u = this.me();
+    const uid = riderUid ?? u.uid;
+    const r = this.st.riders[uid];
+    const ok = u.uid === uid || u.role === 'super_admin' || (r && (r.homeStoreId ? this.operates(u, r.homeStoreId) : u.vendorId === r.vendorId && (u.role === 'seller' || u.role === 'staff')));
+    if (!ok) throw new DataError('Not allowed', 'PERMISSION_DENIED');
+    return this.st.riderCash.filter((x) => x.riderUid === uid).map((x) => ({ ...x }));
+  }
+
+  /* -------------------------------------------------- Phase 4 · operator ↔ riders */
+  async listStoreRiders(storeId: string) {
+    const u = this.me();
+    if (!this.operates(u, storeId) && u.role !== 'super_admin') throw new DataError('You do not operate this store', 'PERMISSION_DENIED');
+    const vendorId = this.store(storeId).vendorId;
+    return Object.values(this.st.riders)
+      .filter((r) => r.vendorId === vendorId && r.homeStoreId === storeId && Object.values(this.st.users).some((x) => x.uid === r.uid && x.role === 'rider'))
+      .map((r) => this.riderRow(r))
+      .sort((a, b) => Number(b.isOnline) - Number(a.isOnline) || a.name.localeCompare(b.name));
+  }
+  async assignRider(orderId: string, riderUid: string | null) {
+    const u = this.me();
+    const o = this.st.orders.find((x) => x.orderId === orderId);
+    if (!o) throw new DataError('Order not found');
+    if (!this.operates(u, o.storeId)) throw new DataError('You do not operate this store', 'PERMISSION_DENIED');
+    if (!ASSIGNABLE_STATUSES.includes(o.status)) throw new DataError('A rider can be assigned only after you accept the order and before it leaves the store', 'BAD_STATUS');
+    const prev = o.riderUid ?? null;
+    if (riderUid) {
+      const r = this.st.riders[riderUid];
+      if (!r || !Object.values(this.st.users).some((x) => x.uid === riderUid && x.role === 'rider')) throw new DataError('Rider not found');
+      try {
+        checkAssignRider(r, { orderId: o.orderId, storeId: o.storeId, status: o.status, paymentMethod: o.payment.method, paymentStatus: o.payment.status, grandTotal: o.computation.totals.grandTotal, riderUid: prev });
+      } catch (e) {
+        wrap(e);
+      }
+      this.releaseRider(o);
+      if (!r.activeOrderIds.includes(o.orderId)) r.activeOrderIds.push(o.orderId);
+    } else this.releaseRider(o);
+    o.riderUid = riderUid;
+    this.audit(u, riderUid ? 'order.assign_rider' : 'order.unassign_rider', 'orders', o.orderId, { riderUid: prev }, { riderUid });
+    this.save();
+  }
+  async receiveCodCash(storeId: string, riderUid: string, amount: number) {
+    const u = this.me();
+    if (!this.operates(u, storeId)) throw new DataError('You do not operate this store', 'PERMISSION_DENIED');
+    const r = this.st.riders[riderUid];
+    if (!r || r.vendorId !== this.store(storeId).vendorId || (r.homeStoreId && r.homeStoreId !== storeId)) throw new DataError('This rider does not work from this store');
+    let plan;
+    try {
+      plan = planCodDeposit(r.codCashInHand, amount);
+    } catch (e) {
+      wrap(e);
+    }
+    r.codCashInHand = plan.codCashInHand;
+    this.st.riderCash.unshift({ id: this.id('rc-'), riderUid, storeId, kind: 'DEPOSIT', amount: -amount, balanceAfter: r.codCashInHand, orderId: null, confirmedBy: u.uid, atMs: Date.now() });
+    this.audit(u, 'rider.cod_deposit', 'riders', riderUid, null, { amount, storeId, balanceAfter: r.codCashInHand });
+    this.save();
+    return { codCashInHand: r.codCashInHand };
+  }
+
+  /* -------------------------------------------------- Phase 4 · compliance */
+  async listKycDocs(opts: { status?: KycStatus | 'ALL' } = {}) {
+    this.requireRole('compliance', 'super_admin');
+    const st = opts.status ?? 'PENDING';
+    return this.st.kyc.filter((k) => st === 'ALL' || k.status === st).sort((a, b) => (st === 'PENDING' ? a.createdMs - b.createdMs : b.createdMs - a.createdMs)).map((k) => this.kycRow(k));
+  }
+  async kycFileUrl(docId: string) {
+    const u = this.me();
+    const k = this.st.kyc.find((x) => x.id === docId);
+    if (!k) throw new DataError('Document not found');
+    if (u.role !== 'compliance' && u.role !== 'super_admin' && k.ownerUid !== u.uid) throw new DataError('Not allowed', 'PERMISSION_DENIED');
+    return k.dataUrl;
+  }
+  async reviewKyc(docId: string, decision: 'VERIFIED' | 'REJECTED', note?: string) {
+    const u = this.requireRole('compliance', 'super_admin');
+    const k = this.st.kyc.find((x) => x.id === docId);
+    if (!k) throw new DataError('Document not found');
+    if (k.status !== 'PENDING') throw new DataError('This document was already reviewed');
+    if (decision === 'REJECTED' && (!note || note.trim().length < 3)) throw new DataError('Write why it was rejected so they can upload again');
+    k.status = decision;
+    k.reviewNote = note?.trim().slice(0, 200) || null;
+    k.reviewedMs = Date.now();
+    const ownerStatus = this.rollupOwner(k.ownerUid, k.ownerType, k.vendorId);
+    this.audit(u, `kyc.${decision === 'VERIFIED' ? 'verify' : 'reject'}`, 'kyc_documents', k.id, { status: 'PENDING' }, { status: decision, docType: k.docType, owner: k.ownerUid, ownerStatus, note: k.reviewNote });
+    this.save();
+    return { ownerStatus };
+  }
+  async listRecalls() {
+    const u = this.requireRole('compliance', 'super_admin', 'seller', 'staff');
+    return this.st.recalls.filter((r) => u.role === 'compliance' || u.role === 'super_admin' || r.vendorId === u.vendorId).map(({ vendorId: _v, matchedBatchIds: _m, ...r }) => ({ ...r, batchNumbers: [...r.batchNumbers] }));
+  }
+  async createRecall(i: RecallInput): Promise<RecallResult> {
+    const u = this.requireRole('compliance', 'super_admin');
+    const p = this.st.products[i.productId];
+    if (!p) throw new DataError('Product not found');
+    const reason = i.reason?.trim();
+    if (!reason || reason.length < 5) throw new DataError('Write the recall reason (what is wrong and who asked for it)');
+    const nowMs = Date.now();
+    const stores = this.st.stores.filter((s) => s.vendorId === p.vendorId).map((s) => {
+      const id = inventoryDocId(s.storeId, p.productId);
+      return { storeId: s.storeId, reorderThreshold: this.st.inv[id]?.reorderThreshold ?? 0, batches: this.st.batches[id] ?? [] };
+    });
+    let plan;
+    try {
+      plan = planRecall(p.productId, i.batchNumbers, stores, nowMs);
+    } catch (e) {
+      wrap(e);
+    }
+    const recallId = this.id('rl-');
+    for (const sp of plan.stores) {
+      const list = this.st.batches[inventoryDocId(sp.storeId, p.productId)]!;
+      for (const w of sp.batchWrites) Object.assign(list.find((b) => b.batchId === w.batchId)!, { qty: 0, recalled: true });
+      for (const l of sp.ledger) this.ledger(sp.storeId, p.productId, l, 'RECALL', recallId, reason, u.uid);
+    }
+    if (plan.wholeProduct) Object.assign(p, { complianceStatus: 'RECALLED', isPublished: false, complianceNote: reason });
+    const matched = new Set(plan.matchedBatchIds);
+    const sold = this.st.ledger.filter((l) => l.batchId && matched.has(l.batchId) && ['ONLINE_SALE', 'OFFLINE_QR_SALE', 'POS_WALKIN_SALE', 'ORDER_CANCEL_RESTOCK'].includes(l.movement)).reduce((a, l) => a - l.qtyDelta, 0);
+    const openOrderIds = this.st.orders.filter((o) => !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(o.status) && o.lines.some((l) => l.batchAllocations.some((a) => matched.has(a.batchId)))).map((o) => o.orderId);
+    const batchNumbers = plan.wholeProduct ? [] : [...new Set(plan.stores.flatMap((s) => s.batchWrites.map((w) => w.batchNumber.trim().toUpperCase())))];
+    this.st.recalls.unshift({ id: recallId, productId: p.productId, productName: p.name, vendorId: p.vendorId, batchNumbers, reason, status: 'ACTIVE', unitsRemoved: plan.unitsRemoved, initiatedBy: u.uid, createdMs: nowMs, completedMs: null, matchedBatchIds: plan.matchedBatchIds });
+    this.audit(u, 'recall.create', 'recalls', recallId, null, { productId: p.productId, batchNumbers, unitsRemoved: plan.unitsRemoved, unitsSold: sold, openOrderIds });
+    this.save();
+    return { recallId, unitsRemoved: plan.unitsRemoved, stores: plan.stores.map((s) => ({ storeId: s.storeId, unitsRemoved: s.unitsRemoved })), unitsSold: Math.round(sold * 1000) / 1000, openOrderIds };
+  }
+  async completeRecall(recallId: string) {
+    const u = this.requireRole('compliance', 'super_admin');
+    const r = this.st.recalls.find((x) => x.id === recallId);
+    if (!r) throw new DataError('Recall not found');
+    if (r.status === 'COMPLETED') return;
+    r.status = 'COMPLETED';
+    r.completedMs = Date.now();
+    this.audit(u, 'recall.complete', 'recalls', recallId, { status: 'ACTIVE' }, { status: 'COMPLETED' });
+    this.save();
   }
 
   /* -------------------------------------------------- support */

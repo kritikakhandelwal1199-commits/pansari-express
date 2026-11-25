@@ -35,6 +35,11 @@ import {
   randomId,
   refundOnCancel,
   WALLET_TOPUP_MAX,
+  checkRiderStep,
+  planRiderDelivered,
+  recalledInOrder,
+  riderHasPicked,
+  RiderError,
   type InvoiceComputation,
   type OrderStatus,
   type PlannedLine,
@@ -45,6 +50,7 @@ import { LocalGeoProvider } from '@pansari/adapters';
 import { db, writeAudit } from '../lib/admin.js';
 import { caller, id, inventoryFromDoc, invRef, msToTs, operatesStore, productTaxFromDoc, readBatches, str, toHttps, type Caller } from '../lib/model.js';
 import { finaliseInvoice } from '../sales/commitSale.js';
+import { recalledBatchIds, riderState } from '../ops/phase4.js';
 
 const PAYMENTS_MODE = defineString('PAYMENTS_MODE', { default: 'mock' });
 const geo = new LocalGeoProvider({ maxDistanceMeters: 7000 });
@@ -251,6 +257,8 @@ async function cancelInTx(tx: Transaction, order: DocumentSnapshot, status: 'CAN
     updatedAt: FieldValue.serverTimestamp(),
   });
   tx.delete(db.collection(COL.orderSecrets).doc(order.id));
+  const riderUid = order.get('riderUid') as string | null;
+  if (riderUid) tx.set(db.collection(COL.riders).doc(riderUid), { activeOrderIds: FieldValue.arrayRemove(order.id) }, { merge: true });
   return refund;
 }
 
@@ -299,9 +307,23 @@ export const advanceOrder = onCall({ timeoutSeconds: 60, memory: '512MiB' }, asy
       if (!order.exists) throw new HttpsError('not-found', 'Order not found');
       const storeId = String(order.get('storeId'));
       const vendorId = String(order.get('vendorId'));
-      if (!operatesStore(c, storeId, vendorId)) throw new HttpsError('permission-denied', 'You do not operate this store');
       const from = order.get('status') as OrderStatus;
-      if (!canTransition(from, to)) throw new HttpsError('failed-precondition', `Cannot move an order from ${from} to ${to}`, { code: 'BAD_TRANSITION' });
+      const riderUid = (order.get('riderUid') as string | null) ?? null;
+      if (c.role === 'rider') {
+        // Phase 4: the assigned rider picks up, starts and delivers.
+        try {
+          checkRiderStep(c.uid, { riderUid, status: from }, to);
+        } catch (e) {
+          if (e instanceof RiderError) throw new HttpsError('failed-precondition', e.message, { code: e.code });
+          throw e;
+        }
+      } else {
+        if (!operatesStore(c, storeId, vendorId)) throw new HttpsError('permission-denied', 'You do not operate this store');
+        if (!canTransition(from, to)) throw new HttpsError('failed-precondition', `Cannot move an order from ${from} to ${to}`, { code: 'BAD_TRANSITION' });
+        if (riderUid && riderHasPicked(from)) throw new HttpsError('failed-precondition', 'The rider has this order — they update it from the rider app', { code: 'RIDER_HAS_ORDER' });
+        if (to === 'HANDED_TO_RIDER' && !riderUid) throw new HttpsError('failed-precondition', 'Assign a rider first', { code: 'NO_RIDER' });
+        if (to === 'OUT_FOR_DELIVERY' && riderUid) throw new HttpsError('failed-precondition', 'A rider is assigned — hand the bag to the rider instead', { code: 'RIDER_ASSIGNED' });
+      }
 
       if (to === 'CANCELLED' || to === 'REJECTED') {
         if (!operatorCanCancel(from)) throw new HttpsError('failed-precondition', 'Too late to cancel');
@@ -309,11 +331,23 @@ export const advanceOrder = onCall({ timeoutSeconds: 60, memory: '512MiB' }, asy
         await cancelInTx(tx, order, to, reason, c.uid);
         return;
       }
+      const lines = (order.get('lines') as PlannedLine[]) ?? [];
+      if (isDispatch(to)) {
+        const held = recalledInOrder(lines, await recalledBatchIds(tx, storeId, [...new Set(lines.map((l) => l.productId))]));
+        if (held.length) throw new HttpsError('failed-precondition', `Recalled stock in this order (${held.join(', ')}). Cancel it and ask the customer to order again.`, { code: 'RECALLED_STOCK' });
+      }
+      const riderSnap = to === 'DELIVERED' && riderUid ? await tx.get(db.collection(COL.riders).doc(riderUid)) : null;
       const patch: Record<string, unknown> = { status: to, statusHistory: FieldValue.arrayUnion({ status: to, at: Date.now(), by: c.uid }), updatedAt: FieldValue.serverTimestamp() };
       if (to === 'DELIVERED') {
         if (!otp || (await hashDeliveryOtp(orderId, otp)) !== order.get('deliveryOtpHash')) throw new HttpsError('failed-precondition', 'Wrong delivery code — ask the customer for the 4-digit code', { code: 'BAD_OTP' });
-        if ((order.get('payment') as { method: string }).method === 'COD') patch['payment.status'] = 'PAID';
+        const pay = order.get('payment') as { method: string; status: string };
+        if (pay.method === 'COD') patch['payment.status'] = 'PAID';
         tx.delete(db.collection(COL.orderSecrets).doc(orderId));
+        if (riderSnap?.exists) {
+          const plan = planRiderDelivered(riderState(riderSnap), { orderId, paymentMethod: pay.method, paymentStatus: pay.status, grandTotal: Number((order.get('totals') as { grandTotal: number }).grandTotal) });
+          tx.update(riderSnap.ref, { activeOrderIds: plan.activeOrderIds, codCashInHand: plan.codCashInHand, earningsBalance: FieldValue.increment(plan.earning) });
+          if (plan.cashCollected > 0) tx.create(db.collection(COL.riderCash).doc(), { riderUid, vendorId, storeId, kind: 'COLLECT', amount: plan.cashCollected, balanceAfter: plan.codCashInHand, orderId, confirmedBy: null, at: FieldValue.serverTimestamp() });
+        }
       }
       if (isDispatch(to) && !order.get('invoiceId')) {
         const nowMs = Date.now();

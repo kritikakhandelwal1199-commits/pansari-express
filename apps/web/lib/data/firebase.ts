@@ -40,9 +40,10 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions, httpsCallable, type Functions } from 'firebase/functions';
-import { COL, inventoryDocId, isRole, isValidPincode, randomId, TEMP_CART_TTL_SECONDS, type BatchState, type InvoiceComputation, type OrderStatus } from '@pansari/shared';
+import { connectStorageEmulator, getDownloadURL, getStorage, ref as storageRef, uploadBytes, type FirebaseStorage } from 'firebase/storage';
+import { buildPickList, COL, inventoryDocId, isRole, isValidPincode, kycFileName, randomId, RIDER_KYC_DOCS, TEMP_CART_TTL_SECONDS, VENDOR_KYC_DOCS, type BatchState, type HsnInput, type InvoiceComputation, type KycStatus, type OrderStatus, type PlannedLine, type RiderVehicle, type ZoneInput } from '@pansari/shared';
 import { LocalGeoProvider } from '@pansari/adapters';
-import type { Address, AddressInput, AdjustInput, AppUser, CustomerProfile, DataClient, DeliveryCheck, GuestCart, HsnRow, InventoryRow, InvoiceRow, InwardInput, LedgerRow, OrderRow, PlaceOrderInput, ProductInfo, ProductInput, SaleInput, SaleResult, StoreInfo, TicketInput, TicketRow, WalletTxn } from './types';
+import type { Address, AddressInput, AdjustInput, AppUser, CustomerProfile, DataClient, DeliveryCheck, GuestCart, HsnRow, InventoryRow, InvoiceRow, InwardInput, LedgerRow, OrderRow, PlaceOrderInput, ProductInfo, ProductInput, SaleInput, SaleResult, StoreInfo, TicketInput, TicketRow, WalletTxn, AuditRow, KycDocRow, KycUploadInput, PickTask, RecallInput, RecallResult, RecallRow, RiderCashRow, RiderProfile, RoleInput, UserRow, ZoneRow } from './types';
 import { DataError } from './types';
 
 export interface FirebaseClientConfig {
@@ -57,6 +58,7 @@ interface Ctx {
   auth: Auth;
   db: Firestore;
   fns: Functions;
+  storage: FirebaseStorage;
 }
 
 const ms = (t: unknown): number | null => (t instanceof Timestamp ? t.toMillis() : null);
@@ -67,13 +69,15 @@ function connect(cfg: FirebaseClientConfig, name?: string): Ctx {
   const auth = getAuth(app);
   const db = getFirestore(app);
   const fns = getFunctions(app, cfg.functionsRegion);
+  const storage = getStorage(app);
   if (cfg.useEmulators && !existing) {
+    connectStorageEmulator(storage, '127.0.0.1', 9199);
     connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
     connectFirestoreEmulator(db, '127.0.0.1', 8080);
     connectFunctionsEmulator(fns, '127.0.0.1', 5001);
     auth.settings.appVerificationDisabledForTesting = true;
   }
-  return { app, auth, db, fns };
+  return { app, auth, db, fns, storage };
 }
 
 async function toAppUser(u: User, force = false): Promise<AppUser> {
@@ -113,6 +117,7 @@ function storeFrom(id: string, d: DocumentData): StoreInfo {
     upiVpa: d.upiVpa ?? null,
     acceptsWalkInQr: d.acceptsWalkInQr !== false,
     qrKeyVersion: Number(d.qrKeyVersion ?? 1),
+    location: d.location ?? null,
   };
 }
 
@@ -259,7 +264,7 @@ export class FirebaseDataClient implements DataClient {
   /* ---------------------------------------------- catalogue */
   async listStores() {
     const u = this.user();
-    if (u.role === 'super_admin') return (await getDocs(collection(this.staff.db, COL.stores))).docs.map((d) => storeFrom(d.id, d.data()));
+    if (u.role === 'super_admin' || u.role === 'compliance') return (await getDocs(collection(this.staff.db, COL.stores))).docs.map((d) => storeFrom(d.id, d.data()));
     if (!u.vendorId) return [];
     if (u.role === 'seller' && !(u.storeIds?.length)) {
       return (await getDocs(query(collection(this.staff.db, COL.stores), where('vendorId', '==', u.vendorId)))).docs.map((d) => storeFrom(d.id, d.data()));
@@ -276,7 +281,7 @@ export class FirebaseDataClient implements DataClient {
   }
   async listProducts() {
     const u = this.user();
-    const q = u.role === 'super_admin' ? collection(this.staff.db, COL.products) : query(collection(this.staff.db, COL.products), where('vendorId', '==', u.vendorId ?? '-'));
+    const q = u.role === 'super_admin' || u.role === 'compliance' ? collection(this.staff.db, COL.products) : query(collection(this.staff.db, COL.products), where('vendorId', '==', u.vendorId ?? '-'));
     const list = (await getDocs(q)).docs.map((d) => productFrom(d.id, d.data()));
     list.forEach((p) => this.productCache.set(p.productId, p));
     return list.sort((a, b) => a.name.localeCompare(b.name));
@@ -605,7 +610,15 @@ export class FirebaseDataClient implements DataClient {
       deliveryOtp: withOtp ? otp : null,
       customerPhone: withOtp ? undefined : d.customerPhone ?? null,
       customerName: withOtp ? undefined : d.customerName ?? null,
+      riderUid: d.riderUid ?? null,
+      riderName: d.riderUid ? (await this.riderName(d.riderUid)) : null,
+      riderPhone: null,
     };
+  }
+  private riderNames = new Map<string, string | null>();
+  private async riderName(uid: string): Promise<string | null> {
+    if (!this.riderNames.has(uid)) this.riderNames.set(uid, (await getDoc(doc(this.staff.db, COL.riders, uid)).catch(() => null))?.get('name') ?? null);
+    return this.riderNames.get(uid) ?? null;
   }
   async myOrders() {
     const u = this.uidOrThrow();
@@ -644,6 +657,161 @@ export class FirebaseDataClient implements DataClient {
   }
   advanceOrder(orderId: string, to: OrderStatus, opts: { otp?: string; reason?: string } = {}) {
     return this.call<{ orderId: string; to: OrderStatus; otp?: string; reason?: string }, { status: OrderStatus; invoiceNo: string | null }>(this.staff, 'advanceOrder')({ orderId, to, ...opts });
+  }
+
+  /* ---------------------------------------------- Phase 4 · super admin */
+  listUsers() {
+    return this.call<Record<string, never>, UserRow[]>(this.staff, 'listUsers')({});
+  }
+  setUserRole(input: RoleInput) {
+    return this.call<RoleInput, UserRow>(this.staff, 'setUserRole')(input);
+  }
+  async listZones(): Promise<ZoneRow[]> {
+    const snap = await getDocs(collection(this.staff.db, COL.zones));
+    return snap.docs.map((d) => ({ zoneId: d.id, name: d.get('name'), geometryJson: d.get('geometryJson'), storeIds: d.get('storeIds') ?? [], baseDeliveryFee: Number(d.get('baseDeliveryFee') ?? 0), freeDeliveryAbove: Number(d.get('freeDeliveryAbove') ?? 0), surgeMultiplierBps: Number(d.get('surgeMultiplierBps') ?? 10_000), isActive: d.get('isActive') === true }));
+  }
+  saveZone(input: ZoneInput) {
+    return this.call<ZoneInput, ZoneRow>(this.staff, 'saveZone')(input);
+  }
+  upsertHsn(input: HsnInput) {
+    return this.call<HsnInput, { productsUpdated: number }>(this.staff, 'upsertHsn')(input);
+  }
+  async listAudit(opts: { max?: number; actionPrefix?: string } = {}): Promise<AuditRow[]> {
+    const base = collection(this.staff.db, COL.auditLogs);
+    const q = opts.actionPrefix
+      ? query(base, where('action', '>=', opts.actionPrefix), where('action', '<', `${opts.actionPrefix}`), limit(opts.max ?? 200))
+      : query(base, orderBy('at', 'desc'), limit(opts.max ?? 200));
+    const rows = (await getDocs(q)).docs.map((d) => ({ id: d.id, actorUid: d.get('actorUid'), actorRole: d.get('actorRole'), action: d.get('action'), target: d.get('target'), before: d.get('before') ?? null, after: d.get('after') ?? null, atMs: ms(d.get('at')) ?? 0 }));
+    return rows.sort((a, b) => b.atMs - a.atMs);
+  }
+  async listAllProducts() {
+    const snap = await getDocs(collection(this.staff.db, COL.products));
+    return snap.docs.map((d) => ({ ...productFrom(d.id, d.data()), vendorId: String(d.get('vendorId')) })).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /* ---------------------------------------------- Phase 4 · staff picker */
+  async pickTask(orderId: string): Promise<PickTask> {
+    const s = await getDoc(doc(this.staff.db, COL.orders, orderId));
+    if (!s.exists()) throw new DataError('Order not found');
+    const d = s.data();
+    const lines = (d.lines as PlannedLine[]) ?? [];
+    await this.ensureProducts();
+    const shelf: Parameters<typeof buildPickList>[1] = {};
+    for (const l of lines) {
+      const inv = await getDoc(doc(this.staff.db, COL.storeInventory, inventoryDocId(d.storeId, l.productId))).catch(() => null);
+      shelf[l.productId] = { aisleBinCode: inv?.get('aisleBinCode') ?? '', barcode: this.productCache.get(l.productId)?.barcode ?? null, batches: await this.listBatches(d.storeId, l.productId).catch(() => []) };
+    }
+    return { order: await this.orderFrom(s.id, d, false), lines: buildPickList(lines, shelf) };
+  }
+
+  /* ---------------------------------------------- Phase 4 · rider */
+  private riderFrom(id: string, d: DocumentData): RiderProfile {
+    return { uid: id, name: d.name ?? 'Rider', phone: d.phone ?? '', vehicleType: d.vehicleType ?? 'SCOOTER', vehicleNumber: d.vehicleNumber ?? null, kycStatus: d.kycStatus ?? 'PENDING', isOnline: d.isOnline === true, homeStoreId: d.homeStoreId ?? null, codCashInHand: Number(d.codCashInHand ?? 0), earningsBalance: Number(d.earningsBalance ?? 0), activeOrderIds: d.activeOrderIds ?? [], lastSeenMs: ms(d.lastSeenAt) };
+  }
+  async myRider() {
+    const u = this.user();
+    const s = await getDoc(doc(this.staff.db, COL.riders, u.uid));
+    if (!s.exists()) throw new DataError('Ask the admin to set up your rider account (home store)', 'NOT_FOUND');
+    return this.riderFrom(s.id, s.data());
+  }
+  async saveRiderProfile(patch: { name: string; vehicleType: RiderVehicle; vehicleNumber: string | null }) {
+    await this.call(this.staff, 'saveRiderProfile')(patch);
+  }
+  async setRiderShift(online: boolean, location?: { lat: number; lng: number } | null) {
+    await this.call(this.staff, 'setRiderShift')({ online, location: location ?? null });
+  }
+  private kycFrom(id: string, d: DocumentData, ownerName: string | null): KycDocRow {
+    return { id, ownerUid: d.ownerUid, ownerType: d.ownerType, ownerName, vendorId: d.vendorId ?? null, docType: d.docType, fileName: d.fileName ?? d.storagePath?.split('/').pop() ?? '', status: d.status, reviewNote: d.reviewNote ?? null, createdMs: ms(d.createdAt) ?? 0, reviewedMs: ms(d.reviewedAt) };
+  }
+  async myKycDocs() {
+    const u = this.user();
+    const snap = await getDocs(query(collection(this.staff.db, COL.kycDocuments), where('ownerUid', '==', u.uid), orderBy('createdAt', 'desc'), limit(50)));
+    return snap.docs.map((d) => this.kycFrom(d.id, d.data(), u.displayName));
+  }
+  async uploadKyc(i: KycUploadInput) {
+    const u = this.user();
+    const ownerType = u.role === 'rider' ? 'RIDER' : u.role === 'seller' ? 'VENDOR' : null;
+    if (!ownerType) throw new DataError('Only riders and the shop owner upload KYC documents', 'PERMISSION_DENIED');
+    if (!(ownerType === 'RIDER' ? RIDER_KYC_DOCS : VENDOR_KYC_DOCS).includes(i.docType)) throw new DataError('This document is not needed for your account');
+    if (i.docType === 'AADHAAR_MASKED' && !i.maskedConfirmed) throw new DataError('Upload a masked Aadhaar (only the last 4 digits visible) and tick the box to confirm');
+    if (i.file.size > 10 * 1024 * 1024) throw new DataError('File must be under 10 MB');
+    const fileName = kycFileName(i.docType, i.fileName, Date.now());
+    const path = `kyc/${u.uid}/${fileName}`;
+    try {
+      await uploadBytes(storageRef(this.staff.storage, path), i.file, { contentType: i.file.type || undefined });
+      const ref = doc(collection(this.staff.db, COL.kycDocuments));
+      const row = { ownerUid: u.uid, ownerType, vendorId: ownerType === 'VENDOR' ? u.vendorId ?? null : null, docType: i.docType, storagePath: path, fileName: i.fileName.slice(0, 100), status: 'PENDING', reviewerUid: null, reviewNote: null, createdAt: serverTimestamp(), reviewedAt: null, ...(i.docType === 'AADHAAR_MASKED' ? { maskedConfirmed: true } : {}) };
+      await setDoc(ref, row);
+      return this.kycFrom(ref.id, { ...row, createdAt: Timestamp.now() }, u.displayName);
+    } catch (e) {
+      fnError(e);
+    }
+  }
+  async riderOrders() {
+    const u = this.user();
+    const snap = await getDocs(query(collection(this.staff.db, COL.orders), where('riderUid', '==', u.uid), orderBy('createdAt', 'desc'), limit(40)));
+    const dayAgo = Date.now() - 86_400_000;
+    const rows = await Promise.all(snap.docs.map((d) => this.orderFrom(d.id, d.data(), false)));
+    return rows.filter((o) => !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(o.status) || o.placedMs > dayAgo);
+  }
+  async riderCash(riderUid?: string): Promise<RiderCashRow[]> {
+    const u = this.user();
+    const uid = riderUid ?? u.uid;
+    let q;
+    if (uid === u.uid) q = query(collection(this.staff.db, COL.riderCash), where('riderUid', '==', uid), orderBy('at', 'desc'), limit(100));
+    else {
+      const r = await getDoc(doc(this.staff.db, COL.riders, uid));
+      q = query(collection(this.staff.db, COL.riderCash), where('riderUid', '==', uid), where('storeId', '==', r.get('homeStoreId') ?? '-'), where('vendorId', '==', r.get('vendorId') ?? '-'), orderBy('at', 'desc'), limit(100));
+    }
+    return (await getDocs(q)).docs.map((d) => ({ id: d.id, riderUid: d.get('riderUid'), storeId: d.get('storeId'), kind: d.get('kind'), amount: d.get('amount'), balanceAfter: d.get('balanceAfter'), orderId: d.get('orderId') ?? null, confirmedBy: d.get('confirmedBy') ?? null, atMs: ms(d.get('at')) ?? 0 }));
+  }
+
+  /* ---------------------------------------------- Phase 4 · operator ↔ riders */
+  async listStoreRiders(storeId: string) {
+    const store = await this.getStore(storeId);
+    const snap = await getDocs(query(collection(this.staff.db, COL.riders), where('vendorId', '==', store?.vendorId ?? '-'), where('homeStoreId', '==', storeId)));
+    return snap.docs.map((d) => this.riderFrom(d.id, d.data())).sort((a, b) => Number(b.isOnline) - Number(a.isOnline) || a.name.localeCompare(b.name));
+  }
+  async assignRider(orderId: string, riderUid: string | null) {
+    await this.call(this.staff, 'assignRider')({ orderId, riderUid });
+  }
+  receiveCodCash(storeId: string, riderUid: string, amount: number) {
+    return this.call<{ storeId: string; riderUid: string; amount: number }, { codCashInHand: number }>(this.staff, 'receiveCodCash')({ storeId, riderUid, amount });
+  }
+
+  /* ---------------------------------------------- Phase 4 · compliance */
+  async listKycDocs(opts: { status?: KycStatus | 'ALL' } = {}) {
+    const st = opts.status ?? 'PENDING';
+    const base = collection(this.staff.db, COL.kycDocuments);
+    const snap = await getDocs(st === 'ALL' ? query(base, orderBy('createdAt', 'desc'), limit(200)) : query(base, where('status', '==', st), orderBy('createdAt', 'asc'), limit(200)));
+    const names = new Map<string, string | null>();
+    for (const d of snap.docs) {
+      const key = d.get('ownerType') === 'RIDER' ? `r:${d.get('ownerUid')}` : `v:${d.get('vendorId')}`;
+      if (names.has(key)) continue;
+      const s = await getDoc(doc(this.staff.db, key.startsWith('r:') ? COL.riders : COL.vendors, key.slice(2))).catch(() => null);
+      names.set(key, (s?.get('name') ?? s?.get('tradeName') ?? null) as string | null);
+    }
+    return snap.docs.map((d) => this.kycFrom(d.id, d.data(), names.get(d.get('ownerType') === 'RIDER' ? `r:${d.get('ownerUid')}` : `v:${d.get('vendorId')}`) ?? null));
+  }
+  async kycFileUrl(docId: string) {
+    const s = await getDoc(doc(this.staff.db, COL.kycDocuments, docId));
+    if (!s.exists()) throw new DataError('Document not found');
+    return getDownloadURL(storageRef(this.staff.storage, s.get('storagePath'))).catch(() => null);
+  }
+  reviewKyc(docId: string, decision: 'VERIFIED' | 'REJECTED', note?: string) {
+    return this.call<{ docId: string; decision: string; note?: string }, { ownerStatus: KycStatus }>(this.staff, 'reviewKyc')({ docId, decision, note });
+  }
+  async listRecalls(): Promise<RecallRow[]> {
+    const u = this.user();
+    const base = collection(this.staff.db, COL.recalls);
+    const q = u.role === 'compliance' || u.role === 'super_admin' ? query(base, orderBy('createdAt', 'desc'), limit(100)) : query(base, where('vendorId', '==', u.vendorId ?? '-'), orderBy('createdAt', 'desc'), limit(100));
+    return (await getDocs(q)).docs.map((d) => ({ id: d.id, productId: d.get('productId'), productName: d.get('productName'), batchNumbers: d.get('batchNumbers') ?? [], reason: d.get('reason'), status: d.get('status'), unitsRemoved: Number(d.get('unitsRemoved') ?? 0), initiatedBy: d.get('initiatedBy'), createdMs: ms(d.get('createdAt')) ?? 0, completedMs: ms(d.get('completedAt')) }));
+  }
+  createRecall(input: RecallInput) {
+    return this.call<RecallInput, RecallResult>(this.staff, 'createRecall')(input);
+  }
+  async completeRecall(recallId: string) {
+    await this.call(this.staff, 'completeRecall')({ recallId });
   }
 
   /* ---------------------------------------------- support */

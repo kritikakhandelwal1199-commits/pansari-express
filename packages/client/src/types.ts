@@ -7,7 +7,7 @@
  * Two independent sessions exist side by side: the staff session (seller portal + POS)
  * and the walk-in guest session (store QR storefront).
  */
-import type { BatchState, ComplianceStatus, GstSlab, InvoiceComputation, OnlinePaymentMethod, OrderStatus, PaymentMethod, PaymentStatus, Role, SalesChannel, StockMovement, StoreType, TaxType, TicketCategory, Uqc } from '@pansari/shared';
+import type { BatchState, ComplianceStatus, GstSlab, HsnInput, InvoiceComputation, KycDocType, KycStatus, OnlinePaymentMethod, OrderStatus, PaymentMethod, PaymentStatus, PickLine, RiderVehicle, Role, SalesChannel, StockMovement, StoreType, TaxType, TicketCategory, Uqc, ZoneInput } from '@pansari/shared';
 
 export interface AppUser {
   uid: string;
@@ -33,6 +33,8 @@ export interface StoreInfo {
   upiVpa: string | null;
   acceptsWalkInQr: boolean;
   qrKeyVersion: number;
+  /** Map pin (zones editor, rider directions). */
+  location?: { lat: number; lng: number } | null;
 }
 
 export interface ProductInfo {
@@ -256,6 +258,10 @@ export interface OrderRow {
   deliveryOtp?: string | null;
   customerPhone?: string | null;
   customerName?: string | null;
+  /** Phase 4: rider assigned by the store (null = store delivers itself). */
+  riderUid?: string | null;
+  riderName?: string | null;
+  riderPhone?: string | null;
 }
 
 export interface WalletTxn {
@@ -288,6 +294,139 @@ export interface TicketRow {
   creatorRole: string;
   createdMs: number;
   transcript: { from: 'user' | 'bot' | 'agent'; text: string; at: number }[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Phase 4: super admin, staff picker, rider, compliance               */
+/* ------------------------------------------------------------------ */
+
+export interface UserRow {
+  uid: string;
+  phone: string | null;
+  displayName: string | null;
+  role: Role;
+  vendorId: string | null;
+  storeIds: string[];
+  /** Riders only. */
+  homeStoreId: string | null;
+}
+
+export interface RoleInput {
+  /** Existing user, or give a phone number to find / create the account. */
+  uid?: string;
+  phone?: string;
+  displayName?: string;
+  role: Role;
+  vendorId?: string | null;
+  storeIds?: string[];
+  /** Riders: the store they collect orders from. */
+  homeStoreId?: string | null;
+}
+
+export interface ZoneRow {
+  zoneId: string;
+  name: string;
+  geometryJson: string;
+  storeIds: string[];
+  baseDeliveryFee: number;
+  freeDeliveryAbove: number;
+  surgeMultiplierBps: number;
+  isActive: boolean;
+}
+
+export interface AuditRow {
+  id: string;
+  actorUid: string;
+  actorRole: string;
+  action: string;
+  target: { collection: string; id: string };
+  before: string | null;
+  after: string | null;
+  atMs: number;
+}
+
+export interface RiderProfile {
+  uid: string;
+  name: string;
+  phone: string;
+  vehicleType: RiderVehicle;
+  vehicleNumber: string | null;
+  kycStatus: KycStatus;
+  isOnline: boolean;
+  homeStoreId: string | null;
+  codCashInHand: number;
+  earningsBalance: number;
+  activeOrderIds: string[];
+  lastSeenMs: number | null;
+}
+
+export interface KycDocRow {
+  id: string;
+  ownerUid: string;
+  ownerType: 'VENDOR' | 'RIDER';
+  ownerName: string | null;
+  vendorId: string | null;
+  docType: KycDocType;
+  fileName: string;
+  status: KycStatus;
+  reviewNote: string | null;
+  createdMs: number;
+  reviewedMs: number | null;
+}
+
+export interface KycUploadInput {
+  docType: KycDocType;
+  file: Blob;
+  fileName: string;
+  /** Required for Aadhaar: the uploader confirms only the last 4 digits are visible. */
+  maskedConfirmed?: boolean;
+}
+
+export interface RiderCashRow {
+  id: string;
+  riderUid: string;
+  storeId: string;
+  kind: 'COLLECT' | 'DEPOSIT';
+  amount: number;
+  balanceAfter: number;
+  orderId: string | null;
+  confirmedBy: string | null;
+  atMs: number;
+}
+
+export interface RecallInput {
+  productId: string;
+  /** Empty = recall every batch of the product. */
+  batchNumbers: string[];
+  reason: string;
+}
+
+export interface RecallRow {
+  id: string;
+  productId: string;
+  productName: string;
+  batchNumbers: string[];
+  reason: string;
+  status: 'ACTIVE' | 'COMPLETED';
+  unitsRemoved: number;
+  initiatedBy: string;
+  createdMs: number;
+  completedMs: number | null;
+}
+
+export interface RecallResult {
+  recallId: string;
+  unitsRemoved: number;
+  stores: { storeId: string; unitsRemoved: number }[];
+  /** Units from these batches already sold (counter, QR or online) — for customer outreach. */
+  unitsSold: number;
+  /** Open delivery orders still holding a recalled packet; they cannot be dispatched. */
+  openOrderIds: string[];
+}
+
+export interface PickTask {
+  order: OrderRow;
+  lines: PickLine[];
 }
 
 export interface DataClient {
@@ -366,6 +505,42 @@ export interface DataClient {
   advanceOrder(orderId: string, to: OrderStatus, opts?: { otp?: string; reason?: string }): Promise<{ status: OrderStatus; invoiceNo: string | null }>;
   /** Demo only: lets a customer-only device play the store's part and move their own order one step on. */
   demoAdvanceOrder?(orderId: string): Promise<{ status: OrderStatus; invoiceNo: string | null }>;
+
+  /* Phase 4 · super admin */
+  listUsers(): Promise<UserRow[]>;
+  setUserRole(input: RoleInput): Promise<UserRow>;
+  listZones(): Promise<ZoneRow[]>;
+  saveZone(input: ZoneInput): Promise<ZoneRow>;
+  upsertHsn(input: HsnInput): Promise<{ productsUpdated: number }>;
+  /** Super admin + compliance. Newest first. */
+  listAudit(opts?: { max?: number; actionPrefix?: string }): Promise<AuditRow[]>;
+  /** Super admin + compliance: every listing, any vendor. */
+  listAllProducts(): Promise<(ProductInfo & { vendorId: string })[]>;
+
+  /* Phase 4 · staff picker */
+  pickTask(orderId: string): Promise<PickTask>;
+
+  /* Phase 4 · rider (also uses advanceOrder for pick-up / start / deliver) */
+  myRider(): Promise<RiderProfile>;
+  saveRiderProfile(patch: { name: string; vehicleType: RiderVehicle; vehicleNumber: string | null }): Promise<void>;
+  setRiderShift(online: boolean, location?: { lat: number; lng: number } | null): Promise<void>;
+  myKycDocs(): Promise<KycDocRow[]>;
+  uploadKyc(input: KycUploadInput): Promise<KycDocRow>;
+  riderOrders(): Promise<OrderRow[]>;
+  riderCash(riderUid?: string): Promise<RiderCashRow[]>;
+
+  /* Phase 4 · store operator ↔ riders */
+  listStoreRiders(storeId: string): Promise<RiderProfile[]>;
+  assignRider(orderId: string, riderUid: string | null): Promise<void>;
+  receiveCodCash(storeId: string, riderUid: string, amount: number): Promise<{ codCashInHand: number }>;
+
+  /* Phase 4 · compliance */
+  listKycDocs(opts?: { status?: KycStatus | 'ALL' }): Promise<KycDocRow[]>;
+  kycFileUrl(docId: string): Promise<string | null>;
+  reviewKyc(docId: string, decision: 'VERIFIED' | 'REJECTED', note?: string): Promise<{ ownerStatus: KycStatus }>;
+  listRecalls(): Promise<RecallRow[]>;
+  createRecall(input: RecallInput): Promise<RecallResult>;
+  completeRecall(recallId: string): Promise<void>;
 
   /* support (all roles) */
   createSupportTicket(input: TicketInput): Promise<{ ticketId: string }>;
