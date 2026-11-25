@@ -11,18 +11,15 @@ approve you. Customers can still order with **cash on delivery** and **wallet**.
 ## 0. One-time: your PC
 
 1. Install **Node.js 22 LTS** (https://nodejs.org) and **Git**.
-2. Install **Java 21** (needed only for step 1, the security-rules test).
+2. (Optional) **Java 21**, only if you want to run the security-rules test on your PC.
 3. `git clone https://github.com/kritikakhandelwal1199-commits/pansari-express.git`
 4. In the folder: `npm ci`, then `npm run build -w @pansari/shared` and `npm run build -w @pansari/adapters`.
 
-## 1. Check the security rules (5 minutes)
+## 1. Security rules — already checked
 
-```bash
-npm run test:rules
-```
-All tests must pass. These check who can read and write what (riders, KYC, cash, hygiene checks).
-They have never been run in the cloud workspace, so **don't skip this**. If anything fails, paste
-the output to Claude.
+GitHub runs the security-rules tests automatically (Actions → "Security rules tests") whenever the
+rules change. Before deploying, open the repo's **Actions** tab and make sure the latest run is green.
+To run them yourself: `npm run test:rules` (needs Java 21).
 
 ## 2. Deploy the backend and website
 

@@ -63,7 +63,7 @@ apps/mobile         Expo SDK 58 + Expo Router + NativeWind app for EVERY role: c
 firebase/tests      rules tests (need Firestore emulator + Java)
 preview/web         single-file artifact build of apps/web (in-memory router shims)
 deploy.ps1/.cmd     Windows full deploy (Blaze): Firebase project, secrets, worker, hosting, functions
-.github/workflows   pages.yml (demo → GitHub Pages), firebase-free.yml (Spark: rules+indexes+hosting)
+.github/workflows   pages.yml (demo → GitHub Pages), rules.yml (rules tests on emulators), firebase-free.yml (Spark: rules+indexes+hosting)
 ```
 
 ## Key decisions (keep them)
@@ -137,12 +137,12 @@ Mobile: `cd apps/mobile && npx tsc --noEmit && EXPO_OFFLINE=1 npx expo export --
 - Not deployed yet: real Firebase backend (needs Blaze + Rahul's sign-ins) and the Cloudflare worker.
 - Demo state key stays `pansari-demo-v3`; `migrate()` in demo.ts fills Phase 4 fields into older saved
   states — add new fields there (and to seed) rather than bumping the key.
-- Phase 4 rules tests were added to firebase/tests but NOT run (emulator jar download blocked in the
-  sandbox) — run `npm run test:rules` on Rahul's PC before deploying rules.
+- Rules tests run in CI (.github/workflows/rules.yml, Java + emulators) on every rules/test change —
+  23/23 green on 25 Nov 2026. Listed store_inventory rows are public by design; tests check unlisted rows.
 
 ## Next step
 Phase 4 is done on the web (phone-first pages work in a phone browser). Remaining:
-1. Run `npm run test:rules` locally (Java + emulator) and fix anything in the new rider/KYC/cash rules.
+1. (done) Rules tests run in GitHub Actions (rules.yml) — all 23 pass.
 2. (done) Native Expo screens for every role. Mobile click-through: `expo export --platform web`, serve
    with an SPA fallback, Playwright at 390×844 (rider on shift → Priya COD → Sunita accept/assign/pick
    → Vikram collect/start/deliver → owner receives cash) — 0 errors on 25 Nov 2026.
