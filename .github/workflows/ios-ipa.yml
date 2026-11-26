@@ -23,8 +23,9 @@ jobs:
       fail-fast: false
       matrix:
         flavor: [demo, live]
-    # macOS 26 image: has Xcode 26.4+, which expo-modules-jsi (Swift 6.2) needs. The Intel image stops at 26.2.
-    runs-on: macos-26
+    # Intel Mac image (arm64 + macos-26 runners sat in the queue on 26 Nov 2026). It tops out at Xcode 26.3,
+    # whose Swift 6.2 flags one line in expo-modules-jsi as a data race in Swift 6 mode - see the patch step.
+    runs-on: macos-15-intel
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
@@ -50,6 +51,12 @@ jobs:
       - name: App settings (${{ matrix.flavor }})
         working-directory: apps/mobile
         run: grep -E '^[A-Z_]+=' build-env/${{ matrix.flavor }}.env >> "$GITHUB_ENV"
+      - name: Build expo-modules-jsi in Swift 5 mode (Xcode 26.3 data-race false positive)
+        working-directory: apps/mobile
+        run: |
+          f=node_modules/expo-modules-jsi/apple/Package.swift
+          sed -i '' 's/swiftLanguageModes: \[\.v6\]/swiftLanguageModes: [.v5]/' "$f"
+          grep -n swiftLanguageModes "$f"
       - name: Generate the iOS project
         working-directory: apps/mobile
         run: npx expo prebuild --platform ios --no-install --clean
