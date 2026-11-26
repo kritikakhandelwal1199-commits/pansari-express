@@ -219,7 +219,12 @@ export class FirebaseDataClient implements DataClient {
     const u = ctx.auth.currentUser;
     if (u) headers.Authorization = `Bearer ${await u.getIdToken()}`;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
-    const res = await fetch(`${this.cfg.edgeUrl}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    const init: RequestInit = { method, headers, body: body === undefined ? undefined : JSON.stringify(body) };
+    // One retry on a dropped connection (shop Wi-Fi / mobile data); HTTP errors are not retried.
+    const res = await fetch(`${this.cfg.edgeUrl}${path}`, init).catch(async () => {
+      await new Promise((r) => setTimeout(r, 800));
+      return fetch(`${this.cfg.edgeUrl}${path}`, init);
+    });
     const out = (await res.json().catch(() => ({}))) as T & { ok?: boolean; error?: string; message?: string };
     if (!res.ok) throw new DataError(out.message && out.message !== out.error ? out.message : humanEdgeError(out.error), out.error);
     return out;

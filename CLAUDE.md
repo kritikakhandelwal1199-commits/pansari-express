@@ -162,7 +162,11 @@ Mobile: `cd apps/mobile && npx tsc --noEmit && EXPO_OFFLINE=1 npx expo export --
   SMS region = India only, Storage bucket pansari-express.firebasestorage.app (US-EAST1 no-cost tier).
   Deployed from Google Cloud Shell with scripts/deploy-cloudshell.sh (secrets in ~/.pansari-pansari-express.env there).
   Redeploy: Cloud Shell → cd ~/pansari-express && git pull && npx firebase deploy --only functions,hosting --force.
-  Cloudflare worker (walk-in QR) NOT deployed yet — QR checkout needs it.
+  Cloudflare worker LIVE since 26 Nov 2026: https://pansari-edge.kritikakhandelwal1199.workers.dev (KV EPHEMERAL, secrets =
+  same QR key/edge secret as functions). Deploy/redeploy: Cloud Shell, `export CLOUDFLARE_API_TOKEN=...` (Rahul's token
+  "pansari-worker-deploy"; wrangler OAuth login can't finish in Cloud Shell) then bash scripts/deploy-edge-cloudshell.sh
+  pansari-express (writes edge/worker/wrangler.live.toml, saves EDGE_URL in ~/.pansari-pansari-express.env, rebuilds +
+  redeploys hosting). Verified live: signed posters → guest session → checkout QR → POS redeem → invoice → replay blocked.
 - Region gotcha: setGlobalOptions must run before any function module loads → functions/src/lib/options.ts is
   the FIRST import in index.ts (ESM `export … from` is hoisted; it once sent 20 functions to us-central1).
 - Demo state key stays `pansari-demo-v3`; `migrate()` in demo.ts fills Phase 4 fields into older saved
@@ -180,5 +184,4 @@ Phase 4 is done on the web (phone-first pages work in a phone browser). Remainin
    tried against a real project — first live APK build is in docs/GO-LIVE.md step 4.
 4. (done) Payouts, POD photo, live rider tracking, hygiene checklists — web + phone. Next ideas: payout
    provider (RazorpayX) when APIs are unlocked; background location (expo-task-manager) for riders.
-5. (done) Firebase deployed. Remaining: Rahul's first sign-in → First-time setup → add people; Cloudflare worker
-   for walk-in QR; live APK (eas build --profile live, needs apps/mobile/.env from Cloud Shell).
+5. (done) Firebase deployed + Cloudflare worker deployed. Remaining: add real people; live APK (eas build --profile live, needs apps/mobile/.env from Cloud Shell).
