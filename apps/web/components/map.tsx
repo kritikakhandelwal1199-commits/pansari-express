@@ -42,6 +42,7 @@ export function LiveMap({
   label,
   onPick,
   className,
+  fit = 'all',
 }: {
   pins?: MapPin[];
   zones?: MapZone[];
@@ -52,6 +53,8 @@ export function LiveMap({
   /** Click on the map → lat/lng (e.g. "check this address"). */
   onPick?: (p: { lat: number; lng: number }) => void;
   className?: string;
+  /** 'pins' = zoom to the pins only (zones still drawn); 'all' = pins and zones. */
+  fit?: 'all' | 'pins';
 }) {
   const box = React.useRef<HTMLDivElement>(null);
   const map = React.useRef<Leaflet.Map | null>(null);
@@ -92,6 +95,7 @@ export function LiveMap({
     if (!ready || !L || !m || !g) return;
     g.clearLayers();
     const bounds: Leaflet.LatLngExpression[] = [];
+    const zoneFit = fit === 'all' || pins.length === 0;
     for (const z of zones) {
       try {
         const gj = L.geoJSON(JSON.parse(z.geometryJson), {
@@ -99,7 +103,7 @@ export function LiveMap({
         }).bindTooltip(z.name + (z.active ? '' : ' (off)'), { sticky: true });
         gj.addTo(g);
         const b = gj.getBounds();
-        if (b.isValid()) bounds.push(b.getSouthWest(), b.getNorthEast());
+        if (b.isValid() && zoneFit) bounds.push(b.getSouthWest(), b.getNorthEast());
       } catch {
         /* bad geometry is reported by the zone editor */
       }
@@ -116,9 +120,9 @@ export function LiveMap({
     if (bounds.length && key !== lastFit.current) {
       lastFit.current = key;
       if (bounds.length === 1) m.setView(bounds[0] as Leaflet.LatLngExpression, 14);
-      else m.fitBounds(L.latLngBounds(bounds as Leaflet.LatLngTuple[]), { padding: [28, 28], maxZoom: 15 });
+      else m.fitBounds(L.latLngBounds(bounds as Leaflet.LatLngTuple[]), { paddingTopLeft: [32, 32], paddingBottomRight: [32, 48], maxZoom: 15 });
     }
-  }, [ready, pins, zones, lines]);
+  }, [ready, pins, zones, lines, fit]);
 
   return (
     <div className={className}>

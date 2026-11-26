@@ -67,7 +67,7 @@ export default function DeliveryMapPage() {
         <Skeleton className="h-[480px] rounded-2xl" />
       ) : (
         <div className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
-          <LiveMap pins={pins} zones={mz} lines={lines} height={480} label={`Delivery map: ${open.length} open orders`} />
+          <LiveMap pins={pins} zones={mz} lines={lines} height={480} fit="pins" label={`Delivery map: ${open.length} open orders`} />
           <Card className="grid content-start gap-2">
             <CardTitle>Open orders ({open.length})</CardTitle>
             {open.length === 0 ? (
