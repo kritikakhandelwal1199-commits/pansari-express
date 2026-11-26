@@ -28,6 +28,14 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
+      - name: Use Xcode 26 (expo-modules-jsi needs Swift 6.2)
+        run: |
+          ls -d /Applications/Xcode*.app
+          X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -v -i beta | sort -V | tail -1)
+          [ -n "$X" ] || X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$X" ] || { echo '::error::No Xcode 26 on this runner image'; exit 1; }
+          sudo xcode-select -s "$X/Contents/Developer"
+          xcodebuild -version
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -60,7 +68,8 @@ jobs:
           xcodebuild -workspace "$WS" -scheme "$NAME" -configuration Release -sdk iphoneos \
             -destination 'generic/platform=iOS' -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build | tail -n 60
+            build > build.log 2>&1 || { grep -E 'error:|warning: unable|failed' build.log | head -40; tail -n 80 build.log; exit 1; }
+          tail -n 5 build.log
       - name: Package the .ipa
         run: |
           app=$(ls -d apps/mobile/ios/build/Build/Products/Release-iphoneos/*.app | head -1)
