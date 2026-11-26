@@ -26,3 +26,4 @@ apps/web/.env.production
 preview/web/dist/
 preview/dist/
 .vercel/
+edge/worker/wrangler.live.toml
