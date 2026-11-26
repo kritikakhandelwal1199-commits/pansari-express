@@ -113,6 +113,8 @@ deploy.ps1/.cmd     Windows full deploy (Blaze): Firebase project, secrets, work
   hygiene, one order on the road now, new orders waiting). DataProvider awaits it in demo mode only.
 - Live pitch data: scripts/seed-live-demo.mjs (test phone logins 99999 0000x / 123456 + real flows). Rahul must
   run it himself in Cloud Shell (fixed-code logins are an access decision); remove with --remove-demo.
+  RAN on live 26 Nov 2026 with Rahul's go-ahead: 8 demo logins +9199999 0000[1-8] / 123456 are ACTIVE — remove
+  them (--remove-demo) before real customers. Rahul's number is super_admin (bootstrap flag set).
 - HSN master edits re-rate products by most specific match (8→6→4 digits); frozen online orders keep
   their computation. Zones/HSN written by callables; the audit triggers skip service-account writes.
 
