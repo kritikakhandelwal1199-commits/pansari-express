@@ -122,6 +122,11 @@ deploy.ps1/.cmd     Windows full deploy (Blaze): Firebase project, secrets, work
   exported as env vars (a .env file makes Expo log lines that break autolinking JSON); app.config.js gives the demo
   build its own package (in.pansari.express.demo, "Pansari Demo"). Debug-signed for sideloading. Maven Central can
   429 — re-run failed jobs. Download: github.com/kritikakhandelwal1199-commits/pansari-express/releases/tag/android-latest
+- iOS apps: .github/workflows/ios-ipa.yml (macos-15-intel, newest Xcode 26 = 26.3; arm64/macos-26 runners sat queued).
+  Unsigned build (CODE_SIGNING_ALLOWED=NO) → pansari-demo.ipa / pansari-express-live.ipa on release `ios-latest`; Rahul
+  signs them himself with Sideloadly + his Apple ID (free ID = 7-day re-sign). apps/mobile/scripts/patch-expo-jsi.py
+  fixes the one expo-modules-jsi 58 line Xcode 26.3 rejects ("sending 'slot' risks causing data races"); drop it when
+  runners get Xcode 26.4. Swift 5 mode is NOT a fix (other errors).
 - HSN master edits re-rate products by most specific match (8→6→4 digits); frozen online orders keep
   their computation. Zones/HSN written by callables; the audit triggers skip service-account writes.
 
