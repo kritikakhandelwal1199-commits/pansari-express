@@ -134,7 +134,14 @@ Mobile: `cd apps/mobile && npx tsc --noEmit && EXPO_OFFLINE=1 npx expo export --
 - `.gitignore` once had `lib/` and hid `apps/web/lib` + `functions/src/lib` — keep it `functions/lib/`.
 - Next app-router `layout.tsx`/`page.tsx` must not export extra symbols (shared bits live in components/).
 - Windows PowerShell 5.1: keep .ps1 ASCII, call interactive CLIs (firebase/wrangler login) directly.
-- Not deployed yet: real Firebase backend (needs Blaze + Rahul's sign-ins) and the Cloudflare worker.
+- LIVE since 26 Nov 2026: Firebase project `pansari-express` (Blaze, billing acct 017144-BF784E-0FDE57, UPI autopay,
+  ₹100 budget alert), https://pansari-express.web.app — 35 functions in asia-south1, Phone + Anonymous auth,
+  SMS region = India only, Storage bucket pansari-express.firebasestorage.app (US-EAST1 no-cost tier).
+  Deployed from Google Cloud Shell with scripts/deploy-cloudshell.sh (secrets in ~/.pansari-pansari-express.env there).
+  Redeploy: Cloud Shell → cd ~/pansari-express && git pull && npx firebase deploy --only functions,hosting --force.
+  Cloudflare worker (walk-in QR) NOT deployed yet — QR checkout needs it.
+- Region gotcha: setGlobalOptions must run before any function module loads → functions/src/lib/options.ts is
+  the FIRST import in index.ts (ESM `export … from` is hoisted; it once sent 20 functions to us-central1).
 - Demo state key stays `pansari-demo-v3`; `migrate()` in demo.ts fills Phase 4 fields into older saved
   states — add new fields there (and to seed) rather than bumping the key.
 - Rules tests run in CI (.github/workflows/rules.yml, Java + emulators) on every rules/test change —
@@ -150,4 +157,5 @@ Phase 4 is done on the web (phone-first pages work in a phone browser). Remainin
    tried against a real project — first live APK build is in docs/GO-LIVE.md step 4.
 4. (done) Payouts, POD photo, live rider tracking, hygiene checklists — web + phone. Next ideas: payout
    provider (RazorpayX) when APIs are unlocked; background location (expo-task-manager) for riders.
-5. Deploy: follow docs/GO-LIVE.md (Rahul's sign-ins, Blaze, deploy.cmd, roles, APK).
+5. (done) Firebase deployed. Remaining: Rahul's first sign-in → First-time setup → add people; Cloudflare worker
+   for walk-in QR; live APK (eas build --profile live, needs apps/mobile/.env from Cloud Shell).
