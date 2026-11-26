@@ -423,7 +423,14 @@ export class DemoDataClient implements DataClient {
     this.staffL = new Set();
     const now = Date.now();
     const windows: { start: number; end: number; target: number; span: number }[] = [];
-    const pause = () => new Promise((r) => setTimeout(r, 4));
+    // Tiny synchronous gap so each step gets its own millisecond timestamp. No timers: browsers slow
+    // timers down in background or embedded tabs, which once made this take ~20 s.
+    const pause = async () => {
+      const t = Date.now();
+      while (Date.now() - t < 2) {
+        /* spin ~2 ms */
+      }
+    };
     // Shop hours in India time: `day(2, 11, 5)` = two days ago at 11:05 IST. Today's slots that are still
     // in the future fall back to `fallbackMin` minutes ago, so nothing is ever dated ahead of now.
     const IST = 330 * 60_000;
