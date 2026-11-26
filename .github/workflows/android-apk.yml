@@ -1,0 +1,74 @@
+# Builds installable Android APKs on GitHub's servers (no Expo account needed) and publishes them
+# on the "android-latest" release: Pansari Demo (sample shop, OTP 123456) and Pansari Express (live).
+# Signed with the debug key — fine for sideloading; use EAS / a release keystore for the Play Store.
+name: Android APKs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['apps/mobile/**', 'packages/client/**', '.github/workflows/android-apk.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [demo, live]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w @pansari/shared && npm run build -w @pansari/adapters
+      - run: npm ci --no-audit --no-fund
+        working-directory: apps/mobile
+      - name: App settings (${{ matrix.flavor }})
+        working-directory: apps/mobile
+        run: cp build-env/${{ matrix.flavor }}.env .env
+      - name: Generate the Android project
+        working-directory: apps/mobile
+        run: npx expo prebuild --platform android --no-install --clean
+      - name: Build the APK
+        working-directory: apps/mobile/android
+        env:
+          NODE_ENV: production
+        run: |
+          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g" >> gradle.properties
+          echo "reactNativeArchitectures=arm64-v8a,armeabi-v7a" >> gradle.properties
+          ./gradlew assembleRelease --no-daemon
+      - name: Name the APK
+        run: |
+          src=$(ls apps/mobile/android/app/build/outputs/apk/release/*.apk | head -1)
+          name=$([ "${{ matrix.flavor }}" = live ] && echo pansari-express-live.apk || echo pansari-demo.apk)
+          cp "$src" "$name"
+          echo "APK=$name" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK }}
+          path: ${{ env.APK }}
+      - name: Publish on the android-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view android-latest >/dev/null 2>&1 || gh release create android-latest --title "Android apps (latest build)" --notes "Install on Android: open this page on the phone, download the APK, allow 'install unknown apps'. Pansari Demo = sample shop, OTP 123456. Pansari Express = live shop." --latest=false
+          gh release upload android-latest "$APK" --clobber
