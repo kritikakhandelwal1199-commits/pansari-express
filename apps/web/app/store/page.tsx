@@ -9,7 +9,7 @@ import { Brand, ErrorNote, Qr, useToast } from '@/components/common';
 import { ChatWidget } from '@/components/ChatWidget';
 import { Badge, Button, Field, Input, Skeleton } from '@/components/ui';
 import { useData, useGuest, useResource } from '@/lib/data/provider';
-import type { GuestCart, InventoryRow, InvoiceRow, StoreInfo } from '@/lib/data/types';
+import { productArtUrl, type GuestCart, type InventoryRow, type InvoiceRow, type StoreInfo } from '@/lib/data/types';
 import { cn, daysUntil, errMsg, fmtDate, openPdf, rs } from '@/lib/utils';
 
 const MOCK_TURNSTILE = 'mock-turnstile-pass';
@@ -263,7 +263,11 @@ function Shop({ store, onBill, qrExp }: { store: StoreInfo; onBill: (b: InvoiceR
           return (
             <li key={r.productId} className="grid gap-2 rounded-2xl border border-line bg-surface p-3.5">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
+                {productArtUrl(r.productId) ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={productArtUrl(r.productId)!} alt="" className="size-16 shrink-0 rounded-xl object-cover" />
+                ) : null}
+                <div className="min-w-0 flex-1">
                   <div className="font-bold leading-snug">{r.product.name}</div>
                   {r.product.nameHi ? <div className="text-[13px] text-muted" lang="hi">{r.product.nameHi}</div> : null}
                 </div>

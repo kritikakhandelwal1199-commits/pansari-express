@@ -4,7 +4,8 @@ import { Link, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Bike, ChevronDown, MapPin, MessageCircleQuestion, Search } from 'lucide-react-native';
 import { CATEGORY_LABELS } from '@pansari/shared';
-import type { InventoryRow } from '@pansari/client';
+import { productArt, type InventoryRow } from '@pansari/client';
+import { SvgXml } from 'react-native-svg';
 import { QtyButton } from '@/components/QtyButton';
 import { rs } from '@/components/ui';
 import { useShop } from '@/lib/shop';
@@ -12,12 +13,19 @@ import { useShop } from '@/lib/shop';
 const TILE: Record<string, string> = { preg: 'bg-[#fde7ea]', pooja: 'bg-[#fff1cc]', shaadi: 'bg-[#fbe3d3]', dry: 'bg-[#efe3d3]', home: 'bg-[#e3f1df]' };
 
 function Product({ r }: { r: InventoryRow }) {
+  const art = productArt(r.productId);
   const off = r.mrp > r.sellingPrice ? Math.round(((r.mrp - r.sellingPrice) / r.mrp) * 100) : 0;
   return (
     <View className="m-1.5 flex-1 rounded-2xl border border-line bg-surface p-2.5">
-      <View className={`h-24 items-center justify-center rounded-xl ${TILE[r.product.category] ?? 'bg-surface-2'}`}>
-        <Text className="text-xs font-bold text-muted">{CATEGORY_LABELS[r.product.category as keyof typeof CATEGORY_LABELS] ?? ''}</Text>
-        <Text className="mt-1 rounded-md bg-white/80 px-1.5 text-xs font-bold text-ink">{r.product.netQuantity}</Text>
+      <View className={`h-24 items-center justify-center overflow-hidden rounded-xl ${TILE[r.product.category] ?? 'bg-surface-2'}`}>
+        {art ? (
+          <View className="absolute inset-0">
+            <SvgXml xml={art} width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
+          </View>
+        ) : (
+          <Text className="text-xs font-bold text-muted">{CATEGORY_LABELS[r.product.category as keyof typeof CATEGORY_LABELS] ?? ''}</Text>
+        )}
+        <Text className="absolute bottom-1 left-1 rounded-md bg-white/80 px-1.5 text-xs font-bold text-ink">{r.product.netQuantity}</Text>
         {off >= 5 ? <Text className="absolute left-1.5 top-1.5 overflow-hidden rounded-md bg-[#2f6fd6] px-1.5 text-[11px] font-extrabold text-white">{off}% OFF</Text> : null}
       </View>
       <Text numberOfLines={2} className="mt-2 min-h-[36px] text-[14px] font-bold leading-snug text-ink">

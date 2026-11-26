@@ -8,6 +8,7 @@ import { ErrorNote, useToast } from '@/components/common';
 import { QtyButton, deliveryText, useShop } from '@/components/shop';
 import { Button, Card, CardTitle, EmptyState } from '@/components/ui';
 import { useData } from '@/lib/data/provider';
+import { productArtUrl } from '@/lib/data/types';
 import { cn, errMsg, rs } from '@/lib/utils';
 
 const METHODS: { id: OnlinePaymentMethod; label: string; sub: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -84,6 +85,7 @@ export default function CartPage() {
           <ul className="divide-y divide-line">
             {shop.lines.map(({ row, qty }) => (
               <li key={row.productId} className="flex items-center gap-3 px-4 py-3">
+                <Thumb id={row.productId} />
                 <div className="min-w-0 flex-1">
                   <div className="font-bold leading-snug">{row.product.name}</div>
                   <div className="text-[13px] text-muted">
@@ -189,4 +191,10 @@ export default function CartPage() {
       </div>
     </main>
   );
+}
+
+function Thumb({ id }: { id: string }) {
+  const art = productArtUrl(id);
+  // eslint-disable-next-line @next/next/no-img-element
+  return art ? <img src={art} alt="" className="size-12 shrink-0 rounded-lg object-cover" /> : <div className="size-12 shrink-0 rounded-lg bg-surface-2" />;
 }

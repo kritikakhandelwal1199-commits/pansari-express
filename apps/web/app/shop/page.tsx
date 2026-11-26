@@ -6,7 +6,7 @@ import { Bike, Flower2, Gem, Heart, Home as HomeIcon, Nut, Search, ShoppingBag, 
 import { CATEGORY_LABELS } from '@pansari/shared';
 import { QtyButton, useShop } from '@/components/shop';
 import { Input, Skeleton } from '@/components/ui';
-import type { InventoryRow } from '@/lib/data/types';
+import { productArtUrl, type InventoryRow } from '@/lib/data/types';
 import { cn, rs } from '@/lib/utils';
 
 const CAT_STYLE: Record<string, { icon: React.ComponentType<{ className?: string }>; tile: string }> = {
@@ -20,10 +20,16 @@ const CAT_STYLE: Record<string, { icon: React.ComponentType<{ className?: string
 function ProductCard({ r }: { r: InventoryRow }) {
   const s = CAT_STYLE[r.product.category] ?? CAT_STYLE.home!;
   const off = r.mrp > r.sellingPrice ? Math.round(((r.mrp - r.sellingPrice) / r.mrp) * 100) : 0;
+  const art = productArtUrl(r.productId);
   return (
     <li className="flex flex-col rounded-2xl border border-line bg-surface p-2.5">
-      <div className={cn('relative grid aspect-[4/3] place-items-center rounded-xl', s.tile)}>
-        <s.icon className="size-9 opacity-80" />
+      <div className={cn('relative grid aspect-[4/3] place-items-center overflow-hidden rounded-xl', s.tile)}>
+        {art ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={art} alt="" className="absolute inset-0 size-full object-cover" loading="lazy" />
+        ) : (
+          <s.icon className="size-9 opacity-80" />
+        )}
         <span className="absolute bottom-1.5 left-1.5 rounded-md bg-white/80 px-1.5 py-0.5 text-[11px] font-bold text-[#23140b]">{r.product.netQuantity}</span>
         {off >= 5 ? <span className="absolute left-1.5 top-1.5 rounded-md bg-[#2f6fd6] px-1.5 py-0.5 text-[11px] font-extrabold text-white">{off}% OFF</span> : null}
       </div>
