@@ -433,6 +433,10 @@ export class DemoDataClient implements DataClient {
       return t < now - 5 * 60_000 ? t : now - fallbackMin * 60_000;
     };
     const ago = (minutes: number) => now - minutes * 60_000;
+    // Today's slots: fixed shop times once it is past 12:30 IST, else counted back from now — either
+    // way in time order, so invoice numbers stay chronological (GST invoices must run in sequence).
+    const late = now >= todayStart + 12.5 * 3_600_000;
+    const today = (hh: number, mm: number, minutesAgo: number) => (late ? day(0, hh, mm) : ago(minutesAgo));
     const ep = async (target: number, minutes: number, fn: () => Promise<void>) => {
       await pause();
       const start = Date.now();
@@ -516,13 +520,13 @@ export class DemoDataClient implements DataClient {
         await as(OWNER);
         await this.payRider(RIDER, 3000, 'UPI', 'UPI-PAY-2611');
       });
-      await ep(day(0, 8, 30, 95), 25, async () => {
+      await ep(today(8, 30, 150), 25, async () => {
         await as(SALES);
         await this.commitSale({ storeId: 'S1', channel: 'POS_WALKIN', items: [{ productId: 'atta-5kg', qty: 2 }, { productId: 'namak-1kg', qty: 2 }, { productId: 'sarson-1l', qty: 1 }], payment: { method: 'CASH' } });
         await pause();
         await this.commitSale({ storeId: 'S1', channel: 'POS_WALKIN', items: [{ productId: 'chai-250', qty: 1 }, { productId: 'kishmish-250', qty: 1 }], payment: { method: 'CARD', providerRef: 'CARD-DEMO-77' } });
       });
-      await ep(day(0, 9, 20, 65), 38, async () => {
+      await ep(today(9, 20, 110), 38, async () => {
         await as(PRIYA);
         const o = await this.placeOrder({ addressId: priyaFar, storeId: 'S1', items: [{ productId: 'badam-500', qty: 1 }, { productId: 'chai-250', qty: 1 }], paymentMethod: 'UPI_INTENT', simulateOutcome: 'success' });
         await as(SUNITA);
@@ -532,7 +536,7 @@ export class DemoDataClient implements DataClient {
         await as(VIKRAM);
         await go(o.orderId, ['HANDED_TO_RIDER', 'OUT_FOR_DELIVERY', 'DELIVERED']);
       });
-      await ep(day(0, 8, 5, 25), 4, async () => {
+      await ep(today(8, 5, 170), 4, async () => {
         await as(SUNITA);
         await this.submitHygieneCheck({ storeId: 'S1', kind: 'HYGIENE_DAILY', answers: HYGIENE_QUESTIONS.HYGIENE_DAILY.map((q) => ({ question: q, ok: true })), temperatureC: null });
         await as(PRIYA);

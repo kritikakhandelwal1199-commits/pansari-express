@@ -26,3 +26,13 @@ describe('demo history', () => {
     expect((await c.listOnlineOrders('S1', { includeClosed: true })).length + (await c.listOnlineOrders('S2', { includeClosed: true })).length).toBe(before);
   });
 });
+
+describe('demo history invoices', () => {
+  it('numbers invoices in time order', async () => {
+    const c = new DemoDataClient({ storage: null, sessionStorage: null, noWindowSync: true });
+    await c.ensureHistory();
+    await c.verifyOtp('demo:+919999999991', '123456');
+    const inv = (await c.listInvoices({ fromMs: Date.now() - 5 * 86_400_000, toMs: Date.now() + 1 })).filter((i) => i.invoiceNo.startsWith('PX/')).sort((a, b) => a.invoiceNo.localeCompare(b.invoiceNo));
+    for (let i = 1; i < inv.length; i++) expect(inv[i]!.issuedMs).toBeGreaterThanOrEqual(inv[i - 1]!.issuedMs);
+  });
+});
