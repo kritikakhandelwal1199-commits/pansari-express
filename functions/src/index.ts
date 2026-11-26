@@ -5,7 +5,7 @@
  * Phase 3: online delivery orders, wallet, support tickets.
  * Phase 4: super admin (users, zones, HSN), riders + COD cash, KYC review, recalls.
  */
-import { setGlobalOptions } from 'firebase-functions/v2';
+import './lib/options.js'; // must stay the first import (sets the region for every function)
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onDocumentWrittenWithAuthContext } from 'firebase-functions/v2/firestore';
 import { defineSecret, defineBoolean } from 'firebase-functions/params';
@@ -14,8 +14,6 @@ import { COL, isRole, type PansariClaims } from '@pansari/shared';
 import { adminAuth, db, writeAudit } from './lib/admin.js';
 import { buildClaims, isPrivilegeReduction, RoleError, type RoleChangeInput } from './auth/roleLogic.js';
 import { handleQrSession } from './qr/qrSessionLogic.js';
-
-setGlobalOptions({ region: 'asia-south1', maxInstances: 10 });
 
 const QR_HMAC_KEYS = defineSecret('QR_HMAC_KEYS');
 const EDGE_SHARED_SECRET = defineSecret('EDGE_SHARED_SECRET');
