@@ -45,6 +45,7 @@ import {
   type PlannedLine,
   type SaleCharge,
   type SaleSnapshot,
+  JAIPUR_MAX_DELIVERY_METERS,
 } from '@pansari/shared';
 import { LocalGeoProvider } from '@pansari/adapters';
 import { db, writeAudit } from '../lib/admin.js';
@@ -53,7 +54,7 @@ import { finaliseInvoice } from '../sales/commitSale.js';
 import { recalledBatchIds, riderState } from '../ops/phase4.js';
 
 const PAYMENTS_MODE = defineString('PAYMENTS_MODE', { default: 'mock' });
-const geo = new LocalGeoProvider({ maxDistanceMeters: 7000 });
+const geo = new LocalGeoProvider({ maxDistanceMeters: JAIPUR_MAX_DELIVERY_METERS });
 
 const STATUSES: OrderStatus[] = ['ACCEPTED', 'PICKING', 'PACKED', 'HANDED_TO_RIDER', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'REJECTED'];
 

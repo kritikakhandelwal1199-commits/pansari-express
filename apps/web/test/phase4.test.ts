@@ -51,15 +51,15 @@ describe('phase 4 — super admin', () => {
 
   it('edits a zone: a pincode outside every zone becomes serviceable, fee from the zone', async () => {
     const c = fresh();
-    expect((await c.checkDelivery({ pincode: '302021' })).reason).toBe('OUTSIDE_ZONES');
+    expect((await c.checkDelivery({ pincode: '305001' })).reason).toBe('OUTSIDE_ZONES');
     await login(c, ADMIN);
-    const z = await c.saveZone({ name: 'Vaishali Nagar', geometryJson: rectangleGeometry(26.88, 75.70, 26.94, 75.78), storeIds: ['S1'], baseDeliveryFee: 3500, freeDeliveryAbove: 0, surgeMultiplierBps: 10_000, isActive: true });
+    const z = await c.saveZone({ name: 'Ajmer', geometryJson: rectangleGeometry(26.40, 74.58, 26.50, 74.70), storeIds: ['S1'], baseDeliveryFee: 3500, freeDeliveryAbove: 0, surgeMultiplierBps: 10_000, isActive: true });
     await expect(c.saveZone({ name: 'Godown', geometryJson: rectangleGeometry(26.8, 75.7, 26.9, 75.8), storeIds: ['G1'], baseDeliveryFee: 0, freeDeliveryAbove: 0, surgeMultiplierBps: 10_000, isActive: true })).rejects.toThrow(/Unknown/);
-    const chk = await c.checkDelivery({ pincode: '000000', location: { lat: 26.91, lng: 75.745 } });
+    const chk = await c.checkDelivery({ pincode: '000000', location: { lat: 26.45, lng: 74.64 } });
     expect(chk.reason === 'OK' || chk.reason === 'TOO_FAR').toBe(true);
     expect(chk.baseDeliveryFee).toBe(3500);
     await c.saveZone({ ...(await c.listZones()).find((x) => x.zoneId === z.zoneId)!, isActive: false });
-    expect((await c.checkDelivery({ pincode: '000000', location: { lat: 26.91, lng: 75.745 } })).reason).toBe('OUTSIDE_ZONES');
+    expect((await c.checkDelivery({ pincode: '000000', location: { lat: 26.45, lng: 74.64 } })).reason).toBe('OUTSIDE_ZONES');
   });
 
   it('changing an HSN rate re-rates the products under it', async () => {

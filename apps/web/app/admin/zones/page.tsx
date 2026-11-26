@@ -1,7 +1,8 @@
 'use client';
 import * as React from 'react';
-import { MapPin, Pencil, Plus, Search } from 'lucide-react';
-import { geometryBounds, parseZoneGeometry, rectangleGeometry, type ZoneGeometry } from '@pansari/shared';
+import { MapPin as MapPinIcon, Pencil, Plus, Search } from 'lucide-react';
+import { LiveMap, type MapPin, type MapZone } from '@/components/map';
+import { parseZoneGeometry, rectangleGeometry } from '@pansari/shared';
 import { ErrorNote, useToast } from '@/components/common';
 import { PageHead } from '@/components/seller';
 import { Badge, Button, Card, CardTitle, Dialog, DialogContent, Field, Input, Segmented, Skeleton, Textarea } from '@/components/ui';
@@ -9,69 +10,16 @@ import { useData, useResource } from '@/lib/data/provider';
 import type { DeliveryCheck, StoreInfo, ZoneRow } from '@/lib/data/types';
 import { errMsg, rs, toPaise } from '@/lib/utils';
 
-const COLORS = ['#b4321e', '#1f7a4d', '#c98a0b', '#3b5ba5', '#8a3fa0', '#0f7c8c'];
-
-function polys(g: ZoneGeometry) {
-  return g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
-}
-
-/** Plain SVG map of zones (no map tiles, no API key). North is up. */
-function ZoneMap({ zones, stores, highlight }: { zones: ZoneRow[]; stores: StoreInfo[]; highlight?: string | null }) {
-  const parsed = zones.flatMap((z) => {
-    try {
-      return [{ z, g: parseZoneGeometry(z.geometryJson) }];
-    } catch {
-      return [];
-    }
-  });
-  const pts = [...parsed.map((p) => geometryBounds(p.g)), ...stores.filter((s) => s.location).map((s) => ({ south: s.location!.lat, north: s.location!.lat, west: s.location!.lng, east: s.location!.lng }))];
-  if (!pts.length) return <div className="grid h-64 place-items-center rounded-xl bg-surface-2 text-sm text-muted">No zones yet</div>;
-  const b = { south: Math.min(...pts.map((p) => p.south)), north: Math.max(...pts.map((p) => p.north)), west: Math.min(...pts.map((p) => p.west)), east: Math.max(...pts.map((p) => p.east)) };
-  const pad = 0.01;
-  const W = 600;
-  const kx = Math.cos(((b.south + b.north) / 2) * (Math.PI / 180)); // shrink longitude to keep shapes true
-  const spanX = (b.east - b.west + 2 * pad) * kx;
-  const spanY = b.north - b.south + 2 * pad;
-  const H = Math.max(220, Math.min(520, (W * spanY) / spanX));
-  const x = (lng: number) => (((lng - b.west + pad) * kx) / spanX) * W;
-  const y = (lat: number) => H - ((lat - b.south + pad) / spanY) * H;
+/** Real map: zones (hovered one highlighted), stores, and the last checked point. Click to check a spot. */
+function ZoneMap({ zones, stores, highlight, check, onPick }: { zones: ZoneRow[]; stores: StoreInfo[]; highlight?: string | null; check: { lat: number; lng: number } | null; onPick: (p: { lat: number; lng: number }) => void }) {
+  const mz: MapZone[] = zones.map((z) => ({ id: z.zoneId, name: z.name, geometryJson: z.geometryJson, active: z.isActive, highlight: highlight === z.zoneId }));
+  const pins: MapPin[] = stores.filter((s) => s.location).map((s) => ({ id: s.storeId, lat: s.location!.lat, lng: s.location!.lng, kind: 'store', label: s.name }));
+  if (check) pins.push({ id: 'check', lat: check.lat, lng: check.lng, kind: 'check', label: 'Checked address' });
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full rounded-xl border border-line bg-surface-2" role="img" aria-label="Delivery zones map">
-      {parsed.map(({ z, g }, i) =>
-        polys(g).map((rings, j) => (
-          <path
-            key={`${z.zoneId}-${j}`}
-            d={rings.map((r) => `M${r.map(([lng, lat]) => `${x(lng).toFixed(1)},${y(lat).toFixed(1)}`).join('L')}Z`).join(' ')}
-            fill={COLORS[i % COLORS.length]}
-            fillOpacity={z.isActive ? (highlight === z.zoneId ? 0.35 : 0.18) : 0.05}
-            stroke={COLORS[i % COLORS.length]}
-            strokeWidth={highlight === z.zoneId ? 3 : 1.5}
-            strokeDasharray={z.isActive ? undefined : '6 4'}
-            fillRule="evenodd"
-          >
-            <title>{z.name}</title>
-          </path>
-        )),
-      )}
-      {parsed.map(({ z, g }, i) => {
-        const bb = geometryBounds(g);
-        return (
-          <text key={`t-${z.zoneId}`} x={x((bb.west + bb.east) / 2)} y={y(bb.north) + 16} textAnchor="middle" fontSize="13" fontWeight="700" fill={COLORS[i % COLORS.length]}>
-            {z.name}
-          </text>
-        );
-      })}
-      {stores
-        .filter((s) => s.location)
-        .map((s) => (
-          <g key={s.storeId} transform={`translate(${x(s.location!.lng)},${y(s.location!.lat)})`}>
-            <circle r="6" fill="#1a0f0a" stroke="#fff" strokeWidth="2" />
-            <text x="9" y="4" fontSize="12" fontWeight="600" fill="currentColor">
-              {s.name}
-            </text>
-          </g>
-        ))}
-    </svg>
+    <div className="grid gap-1">
+      <LiveMap zones={mz} pins={pins} height={420} onPick={onPick} label="Map of delivery zones and stores. Click anywhere to check delivery there." />
+      <p className="text-[13px] text-muted">Tip: click anywhere on the map to check if we deliver there.</p>
+    </div>
   );
 }
 
@@ -141,9 +89,16 @@ export default function ZonesPage() {
       setBusy(false);
     }
   }
-  async function test() {
-    const m = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(probe);
-    setProbeOut(await data.checkDelivery(m ? { pincode: '000000', location: { lat: Number(m[1]), lng: Number(m[2]) } } : { pincode: probe.trim() }).catch(() => null));
+  const [checkPt, setCheckPt] = React.useState<{ lat: number; lng: number } | null>(null);
+  async function test(text = probe) {
+    const m = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(text);
+    setCheckPt(m ? { lat: Number(m[1]), lng: Number(m[2]) } : null);
+    setProbeOut(await data.checkDelivery(m ? { pincode: '000000', location: { lat: Number(m[1]), lng: Number(m[2]) } } : { pincode: text.trim() }).catch(() => null));
+  }
+  function pick(p: { lat: number; lng: number }) {
+    const t = `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
+    setProbe(t);
+    void test(t);
   }
 
   return (
@@ -162,12 +117,12 @@ export default function ZonesPage() {
       {zones.data ? (
         <div className="grid gap-4 xl:grid-cols-[1.3fr_1fr]">
           <div className="grid content-start gap-3">
-            <ZoneMap zones={zones.data} stores={delivering} highlight={hover} />
+            <ZoneMap zones={zones.data} stores={delivering} highlight={hover} check={checkPt} onPick={pick} />
             <Card className="grid gap-2">
               <CardTitle>Check an address</CardTitle>
               <div className="flex gap-2">
                 <Input value={probe} onChange={(e) => setProbe(e.target.value)} placeholder="Pincode, or lat, lng (26.91, 75.74)" onKeyDown={(e) => e.key === 'Enter' && test()} />
-                <Button variant="outline" onClick={test} aria-label="Check">
+                <Button variant="outline" onClick={() => test()} aria-label="Check">
                   <Search className="size-4" />
                 </Button>
               </div>
@@ -191,7 +146,7 @@ export default function ZonesPage() {
                   <div>
                     <CardTitle>{z.name}</CardTitle>
                     <div className="mt-1 flex items-center gap-1 text-sm text-muted">
-                      <MapPin className="size-4" /> {z.storeIds.map(name).join(', ')}
+                      <MapPinIcon className="size-4" /> {z.storeIds.map(name).join(', ')}
                     </div>
                   </div>
                   <Badge tone={z.isActive ? 'good' : 'neutral'}>{z.isActive ? 'Active' : 'Paused'}</Badge>

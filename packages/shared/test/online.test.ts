@@ -102,12 +102,15 @@ describe('online orders', () => {
     expect(await hashDeliveryOtp('o-1', otp)).not.toBe(await hashDeliveryOtp('o-2', otp));
   });
 
-  it('demo zones cover Johari Bazaar and Malviya Nagar but not Vaishali Nagar', () => {
+  it('demo zones cover all of Jaipur (walled city, Malviya Nagar, Vaishali Nagar, Amer, Jagatpura) but not Ajmer', () => {
     const z = DEMO_ZONES.map((x) => parseZoneGeometry(x.geometryJson));
     const inAny = (p: { lat: number; lng: number }) => z.some((g) => pointInGeometry(p, g));
     expect(inAny({ lat: 26.9196, lng: 75.8267 })).toBe(true);
     expect(inAny({ lat: 26.8549, lng: 75.8243 })).toBe(true);
-    expect(inAny({ lat: 26.9115, lng: 75.7398 })).toBe(false);
+    expect(inAny({ lat: 26.9115, lng: 75.7398 })).toBe(true);
+    expect(inAny({ lat: 26.9855, lng: 75.8513 })).toBe(true);
+    expect(inAny({ lat: 26.8226, lng: 75.8649 })).toBe(true);
+    expect(inAny({ lat: 26.4499, lng: 74.6399 })).toBe(false);
   });
 });
 

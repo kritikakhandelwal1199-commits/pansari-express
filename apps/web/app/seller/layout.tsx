@@ -2,7 +2,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BadgeCheck, BookText, Bike, Boxes, FileText, LayoutGrid, LifeBuoy, LogOut, Package, PackageCheck, QrCode, ScanBarcode, Users } from 'lucide-react';
+import { BadgeCheck, BookText, Bike, Boxes, FileText, LayoutGrid, LifeBuoy, LogOut, Map as MapIcon, Package, PackageCheck, QrCode, ScanBarcode, Users } from 'lucide-react';
 import { ChatWidget } from '@/components/ChatWidget';
 import { Brand, RequireStaff, useSelectedStore } from '@/components/common';
 import { Button, Select } from '@/components/ui';
@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 const NAV = [
   { href: '/seller', label: 'Dashboard', icon: LayoutGrid, roles: ['seller', 'staff', 'super_admin'] },
   { href: '/seller/orders', label: 'Online orders', icon: Bike, roles: ['seller', 'staff'] },
+  { href: '/seller/map', label: 'Delivery map', icon: MapIcon, roles: ['seller', 'staff'] },
   { href: '/seller/riders', label: 'Riders & cash', icon: Users, roles: ['seller', 'staff'] },
   { href: '/seller/products', label: 'Products', icon: Package, roles: ['seller', 'super_admin'] },
   { href: '/seller/inventory', label: 'Stock', icon: Boxes, roles: ['seller', 'staff'] },

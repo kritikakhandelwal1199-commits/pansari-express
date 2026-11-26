@@ -31,7 +31,21 @@ const Ctx = React.createContext<DataClient | null>(null);
 
 export function DataProvider({ children, client }: { children: React.ReactNode; client?: DataClient }) {
   const [c] = React.useState(() => client ?? createClient());
-  return <Ctx.Provider value={c}>{children}</Ctx.Provider>;
+  // Demo mode: build a few days of sample history once per browser before the first screen.
+  const history = !client && c instanceof DemoDataClient ? c : null;
+  const [ready, setReady] = React.useState(!history);
+  React.useEffect(() => {
+    if (!history) return;
+    let alive = true;
+    history
+      .ensureHistory()
+      .catch(() => undefined)
+      .finally(() => alive && setReady(true));
+    return () => {
+      alive = false;
+    };
+  }, [history]);
+  return <Ctx.Provider value={c}>{ready ? children : <div className="grid min-h-dvh place-items-center text-sm text-muted">Loading the demo shop…</div>}</Ctx.Provider>;
 }
 
 export function useData(): DataClient {

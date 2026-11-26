@@ -104,6 +104,15 @@ deploy.ps1/.cmd     Windows full deploy (Blaze): Firebase project, secrets, work
 - First-time setup (bootstrapBusiness, BOOTSTRAP_PHONE = $OwnerPhone in deploy.ps1) makes the caller
   super_admin (Rahul); he adds the shop owner etc. in Admin → People & roles. deploy-state.json holds
   secrets — gitignored + easignored.
+- Delivery area = all of Jaipur: DEMO_ZONES Z1 north (S1) / Z2 south (S2) split at lat 26.88 inside JAIPUR_BOUNDS;
+  JAIPUR_MAX_DELIVERY_METERS 15 km (demo, live client, placeOrder). Outside example: 305001 Ajmer.
+- Maps: components/map.tsx = Leaflet + OSM tiles (no key, browser-only dynamic import, CSS pins). Used by
+  RiderTracker, admin zones (click map to check delivery), and /seller/map (Delivery map: open orders + riders).
+- Demo history: DemoDataClient.ensureHistory() runs real demo flows once per browser (state.historyV1) and
+  spreads timestamps over 3 days (delivered rider/store orders, COD hand-in, payout, refund, B2B bill, ticket,
+  hygiene, one order on the road now, new orders waiting). DataProvider awaits it in demo mode only.
+- Live pitch data: scripts/seed-live-demo.mjs (test phone logins 99999 0000x / 123456 + real flows). Rahul must
+  run it himself in Cloud Shell (fixed-code logins are an access decision); remove with --remove-demo.
 - HSN master edits re-rate products by most specific match (8→6→4 digits); frozen online orders keep
   their computation. Zones/HSN written by callables; the audit triggers skip service-account writes.
 
@@ -111,7 +120,7 @@ deploy.ps1/.cmd     Windows full deploy (Blaze): Firebase project, secrets, work
 ```bash
 npm ci
 npm run build -w @pansari/shared && npm run build -w @pansari/adapters
-npm test            # 101 tests (shared 56, adapters 9, worker 8, functions 7, web flows 21)
+npm test            # 102 tests (shared 56, adapters 9, worker 8, functions 7, web flows 22)
 npm run typecheck
 npm run dev -w @pansari/web     # NEXT_PUBLIC_DATA_MODE=demo by default; OTP 123456
 npm run test:rules              # needs Java; emulator download may be blocked in sandboxes

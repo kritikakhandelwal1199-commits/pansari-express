@@ -189,7 +189,7 @@ log('wallets topped up (Priya ₹1,000, Neha ₹500)');
 await call('rider', 'setRiderShift', { online: true, location: { lat: 26.9205, lng: 75.8251 } });
 
 // O1: Priya, COD, full rider journey → delivered, cash handed in, rider paid
-const o1 = await call('priya', 'placeOrder', { addressId: 'a-home', storeId: 'S1', items: [{ productId: 'gond-250', qty: 2 }, { productId: 'shatavari-100', qty: 1 }], paymentMethod: 'COD' });
+const o1 = await call('priya', 'placeOrder', { addressId: 'a-home', storeId: 'S1', items: [{ productId: 'gond-250', qty: 2 }, { productId: 'kamarkas-100', qty: 1 }], paymentMethod: 'COD' });
 await step('picker', o1.orderId, 'ACCEPTED');
 await call('picker', 'assignRider', { orderId: o1.orderId, riderUid: uid.rider });
 await step('picker', o1.orderId, 'PICKING');

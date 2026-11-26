@@ -257,7 +257,7 @@ function LocationDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
             <Button type="submit" disabled={pin.length !== 6}>
               Check delivery
             </Button>
-            <p className="text-[13px] text-muted">Try 302003 (Johari Bazaar), 302017 (Malviya Nagar) or 302021 (outside our area for now).</p>
+            <p className="text-[13px] text-muted">We deliver across Jaipur — try 302003 (Johari Bazaar), 302021 (Vaishali Nagar) or 302028 (Amer). 305001 (Ajmer) is outside our area.</p>
           </form>
         )}
       </DialogContent>

@@ -140,8 +140,15 @@ export function expandBatches(p: DemoProduct, storeId: string, nowMs: number) {
 
 const box = (s: number, w: number, n: number, e: number) => JSON.stringify({ type: 'Polygon', coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] });
 
-/** Delivery zones (GeoJSON [lng, lat]). Vaishali Nagar is deliberately outside, to show the "not serviceable" path. */
+/**
+ * Delivery zones (GeoJSON [lng, lat]) covering all of Jaipur city — Amer to Sanganer airport,
+ * Jhotwara / Vaishali Nagar to Jagatpura. North half is served from Johari Bazaar (S1), south half
+ * from Malviya Nagar (S2). Anything outside Jaipur (e.g. Ajmer 305001) is "not serviceable".
+ */
+export const JAIPUR_BOUNDS = { south: 26.76, west: 75.66, north: 27.02, east: 75.93 } as const;
+/** Straight-line reach from the nearest store: enough for any address inside Jaipur city. */
+export const JAIPUR_MAX_DELIVERY_METERS = 15_000;
 export const DEMO_ZONES = [
-  { zoneId: 'Z1', name: 'Walled city & Raja Park', geometryJson: box(26.875, 75.78, 26.96, 75.86), storeIds: ['S1'], baseDeliveryFee: 2500, freeDeliveryAbove: 49_900, surgeMultiplierBps: 10_000, isActive: true },
-  { zoneId: 'Z2', name: 'Malviya Nagar & Sanganer', geometryJson: box(26.8, 75.75, 26.875, 75.86), storeIds: ['S2'], baseDeliveryFee: 2500, freeDeliveryAbove: 49_900, surgeMultiplierBps: 10_000, isActive: true },
+  { zoneId: 'Z1', name: 'Jaipur north — walled city, Bani Park, Vaishali Nagar, Jhotwara, Amer', geometryJson: box(26.88, JAIPUR_BOUNDS.west, JAIPUR_BOUNDS.north, JAIPUR_BOUNDS.east), storeIds: ['S1'], baseDeliveryFee: 2500, freeDeliveryAbove: 49_900, surgeMultiplierBps: 10_000, isActive: true },
+  { zoneId: 'Z2', name: 'Jaipur south — Malviya Nagar, Mansarovar, Tonk Road, Sanganer, Jagatpura', geometryJson: box(JAIPUR_BOUNDS.south, JAIPUR_BOUNDS.west, 26.88, JAIPUR_BOUNDS.east), storeIds: ['S2'], baseDeliveryFee: 2500, freeDeliveryAbove: 49_900, surgeMultiplierBps: 10_000, isActive: true },
 ];

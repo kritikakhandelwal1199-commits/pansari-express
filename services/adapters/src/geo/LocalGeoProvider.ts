@@ -23,6 +23,18 @@ export const DEFAULT_GAZETTEER: GazetteerEntry[] = [
   { pincode: '302020', area: 'Mansarovar', city: 'Jaipur', stateCode: '08', center: { lat: 26.8560, lng: 75.7620 } },
   { pincode: '302021', area: 'Vaishali Nagar', city: 'Jaipur', stateCode: '08', center: { lat: 26.9115, lng: 75.7398 } },
   { pincode: '302029', area: 'Sanganer', city: 'Jaipur', stateCode: '08', center: { lat: 26.8200, lng: 75.7880 } },
+  { pincode: '302005', area: 'Bani Park', city: 'Jaipur', stateCode: '08', center: { lat: 26.9286, lng: 75.7931 } },
+  { pincode: '302006', area: 'C-Scheme', city: 'Jaipur', stateCode: '08', center: { lat: 26.9056, lng: 75.8030 } },
+  { pincode: '302012', area: 'Jhotwara', city: 'Jaipur', stateCode: '08', center: { lat: 26.9448, lng: 75.7485 } },
+  { pincode: '302016', area: 'Shastri Nagar', city: 'Jaipur', stateCode: '08', center: { lat: 26.9422, lng: 75.7973 } },
+  { pincode: '302018', area: 'Durgapura', city: 'Jaipur', stateCode: '08', center: { lat: 26.8530, lng: 75.7905 } },
+  { pincode: '302019', area: 'Shyam Nagar / Sodala', city: 'Jaipur', stateCode: '08', center: { lat: 26.8952, lng: 75.7695 } },
+  { pincode: '302022', area: 'Jagatpura', city: 'Jaipur', stateCode: '08', center: { lat: 26.8226, lng: 75.8649 } },
+  { pincode: '302023', area: 'Vidhyadhar Nagar', city: 'Jaipur', stateCode: '08', center: { lat: 26.9563, lng: 75.7769 } },
+  { pincode: '302028', area: 'Amer', city: 'Jaipur', stateCode: '08', center: { lat: 26.9855, lng: 75.8513 } },
+  { pincode: '302033', area: 'Pratap Nagar', city: 'Jaipur', stateCode: '08', center: { lat: 26.8020, lng: 75.8200 } },
+  { pincode: '302039', area: 'Murlipura', city: 'Jaipur', stateCode: '08', center: { lat: 26.9630, lng: 75.7620 } },
+  { pincode: '305001', area: 'Ajmer', city: 'Ajmer', stateCode: '08', center: { lat: 26.4499, lng: 74.6399 } },
 ];
 
 export interface LocalGeoConfig {

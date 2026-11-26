@@ -1,6 +1,7 @@
 'use client';
 /** Building blocks shared by the admin, compliance, seller and rider screens (Phase 4). */
 import * as React from 'react';
+import { LiveMap, type MapPin } from './map';
 import { Check, ChevronDown, ChevronRight, FileUp, Loader2, ShieldCheck, X } from 'lucide-react';
 import { COLD_RANGE, HYGIENE_KIND_LABEL, HYGIENE_QUESTIONS, KYC_DOC_LABEL, kycMissing, type HygieneKind, type KycDocType, type KycStatus } from '@pansari/shared';
 import { ErrorNote, useToast } from '@/components/common';
@@ -510,7 +511,7 @@ export function RiderTracker({ order }: { order: { orderId: string; status: stri
           </Button>
         ) : null}
       </div>
-      {f ? <MiniMap rider={f} home={dest ?? null} /> : null}
+      {f ? <MiniMap rider={f} home={dest ?? null} riderName={order.riderName} /> : null}
       {f && dest ? (
         <a className="w-fit text-[13px] font-semibold text-kum underline" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&origin=${f.lat},${f.lng}&destination=${dest.lat},${dest.lng}`}>
           Open in Google Maps
@@ -520,40 +521,14 @@ export function RiderTracker({ order }: { order: { orderId: string; status: stri
   );
 }
 
-/** Two-point map without tiles: rider dot, home pin, dashed line. North is up. */
-function MiniMap({ rider, home }: { rider: { lat: number; lng: number }; home: { lat: number; lng: number } | null }) {
+/** Real map: rider (live), the customer's home and a dashed line between them. */
+function MiniMap({ rider, home, riderName }: { rider: { lat: number; lng: number }; home: { lat: number; lng: number } | null; riderName?: string | null }) {
   if (!home) return null;
-  const W = 320;
-  const H = 120;
-  const pad = 24;
-  const kx = Math.cos((home.lat * Math.PI) / 180);
-  const dx = (rider.lng - home.lng) * kx;
-  const dy = rider.lat - home.lat;
-  const span = Math.max(Math.abs(dx), Math.abs(dy), 0.0004);
-  const sx = (W / 2 - pad) / span;
-  const sy = (H / 2 - pad) / span;
-  const s = Math.min(sx, sy);
-  const hx = W / 2 - (dx * s) / 2;
-  const hy = H / 2 + (dy * s) / 2;
-  const rx = hx + dx * s;
-  const ry = hy - dy * s;
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto max-h-36 w-full rounded-xl border border-line bg-surface" role="img" aria-label="Rider position relative to your home">
-      <line x1={rx} y1={ry} x2={hx} y2={hy} stroke="#2f7a35" strokeWidth="2.5" strokeDasharray="6 5" />
-      <g transform={`translate(${hx},${hy})`}>
-        <circle r="8" fill="#a3122b" />
-        <circle r="3" fill="#fff" />
-      </g>
-      <g transform={`translate(${rx},${ry})`}>
-        <circle r="11" fill="#2f7a35" fillOpacity="0.2">
-          <animate attributeName="r" values="8;14;8" dur="2s" repeatCount="indefinite" />
-        </circle>
-        <circle r="6" fill="#2f7a35" stroke="#fff" strokeWidth="2" />
-      </g>
-      <text x={hx} y={hy + 22} textAnchor="middle" fontSize="11" fontWeight="700" fill="currentColor">Home</text>
-      <text x={rx} y={ry - 14} textAnchor="middle" fontSize="11" fontWeight="700" fill="#2f7a35">Rider</text>
-    </svg>
-  );
+  const pins: MapPin[] = [
+    { id: 'rider', lat: rider.lat, lng: rider.lng, kind: 'rider', label: riderName ?? 'Rider' },
+    { id: 'home', lat: home.lat, lng: home.lng, kind: 'home', label: 'Delivery address' },
+  ];
+  return <LiveMap pins={pins} lines={[{ id: 'route', from: rider, to: home }]} height={200} label="Map: rider position and the delivery address" />;
 }
 
 /* ------------------------------------------------------------------ Proof-of-delivery photo viewer */

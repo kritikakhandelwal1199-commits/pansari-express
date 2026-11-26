@@ -42,7 +42,7 @@ import {
 } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions, httpsCallable, type Functions } from 'firebase/functions';
 import { connectStorageEmulator, getDownloadURL, getStorage, ref as storageRef, uploadBytes, type FirebaseStorage } from 'firebase/storage';
-import { buildPickList, COL, inventoryDocId, isRole, isValidPincode, kycFileName, randomId, RIDER_KYC_DOCS, TEMP_CART_TTL_SECONDS, VENDOR_KYC_DOCS, type BatchState, type HsnInput, type InvoiceComputation, type KycStatus, type OrderStatus, type PlannedLine, type RiderVehicle, type ZoneInput, validateHygiene, validPing, type PayoutMethod, type RiderFix } from '@pansari/shared';
+import { buildPickList, COL, JAIPUR_MAX_DELIVERY_METERS, inventoryDocId, isRole, isValidPincode, kycFileName, randomId, RIDER_KYC_DOCS, TEMP_CART_TTL_SECONDS, VENDOR_KYC_DOCS, type BatchState, type HsnInput, type InvoiceComputation, type KycStatus, type OrderStatus, type PlannedLine, type RiderVehicle, type ZoneInput, validateHygiene, validPing, type PayoutMethod, type RiderFix } from '@pansari/shared';
 import { LocalGeoProvider } from '@pansari/adapters';
 import type { Address, AddressInput, AdjustInput, AppUser, CustomerProfile, DataClient, DeliveryCheck, GuestCart, HsnRow, InventoryRow, InvoiceRow, InwardInput, LedgerRow, OrderRow, PlaceOrderInput, ProductInfo, ProductInput, SaleInput, SaleResult, StoreInfo, TicketInput, TicketRow, WalletTxn, AuditRow, KycDocRow, KycUploadInput, PickTask, RecallInput, RecallResult, RecallRow, RiderCashRow, PayoutRow, HygieneInput, HygieneRow, PhotoInput, RiderProfile, RoleInput, UserRow, ZoneRow } from './types';
 import { DataError } from './types';
@@ -493,7 +493,7 @@ export class FirebaseDataClient implements DataClient {
   }
 
   /* ---------------------------------------------- customer: delivery */
-  private geo = new LocalGeoProvider({ maxDistanceMeters: 7000 });
+  private geo = new LocalGeoProvider({ maxDistanceMeters: JAIPUR_MAX_DELIVERY_METERS });
   private uidOrThrow() {
     const u = this.staff.auth.currentUser;
     if (!u || u.isAnonymous) throw new DataError('Sign in with your mobile number', 'UNAUTHENTICATED');

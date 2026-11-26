@@ -88,6 +88,9 @@ import {
   type KycStatus,
   type RiderVehicle,
   type ZoneInput,
+  JAIPUR_MAX_DELIVERY_METERS,
+  gstinCheckChar,
+  HYGIENE_QUESTIONS,
 } from '@pansari/shared';
 import { LocalGeoProvider, MockGstProvider } from '@pansari/adapters';
 import type { Address, AddressInput, AdjustInput, AppUser, AuditRow, CustomerProfile, DataClient, DeliveryCheck, GuestCart, HsnRow, InventoryRow, InvoiceRow, InwardInput, KycDocRow, KycUploadInput, LedgerRow, OrderRow, PickTask, PlaceOrderInput, ProductInfo, ProductInput, RecallInput, RecallResult, RecallRow, RiderCashRow, PayoutRow, HygieneInput, HygieneRow, PhotoInput, RiderProfile, RoleInput, SaleInput, SaleResult, StoreInfo, TicketInput, TicketRow, UserRow, WalletTxn, ZoneRow } from './types';
@@ -189,6 +192,8 @@ interface State {
   recalls: RecallRec[];
   payouts: PayoutRec[];
   hygiene: HygieneRec[];
+  /** Demo: a few days of orders, bills and deliveries were generated (see ensureHistory). */
+  historyV1?: boolean;
 }
 
 const ACCOUNTS: { phone: string; label: string; note: string; user: Omit<AppUser, 'uid' | 'phone' | 'isAnonymous'> }[] = [
@@ -276,6 +281,11 @@ function seed(): State {
 function migrate(st: State, now = Date.now()): State {
   st.zones ??= DEMO_ZONES.map((z) => ({ ...z, storeIds: [...z.storeIds] }));
   if (!st.zones.length) st.zones = DEMO_ZONES.map((z) => ({ ...z, storeIds: [...z.storeIds] }));
+  // Nov 2026: the two seed zones grew to cover all of Jaipur — replace the old small seed zones.
+  for (const z of DEMO_ZONES) {
+    const i = st.zones.findIndex((x) => x.zoneId === z.zoneId);
+    if (i >= 0 && !st.zones[i]!.name.startsWith('Jaipur ') && /^(Walled city|Malviya Nagar & Sanganer)/.test(st.zones[i]!.name)) st.zones[i] = { ...z, storeIds: [...z.storeIds] };
+  }
   st.audit ??= [];
   st.riders ??= {};
   st.kyc ??= [];
@@ -397,6 +407,168 @@ export class DemoDataClient implements DataClient {
       this.ls?.setItem(KEY, JSON.stringify(this.st));
     } catch {
       /* quota or private mode — keep in memory */
+    }
+  }
+  /**
+   * Demo only: on first load, give the shop a few days of history (counter bills, delivered rider and
+   * store orders, cash hand-in, a payout, a refund, a ticket, a hygiene check, an order on the road
+   * right now and new orders waiting) by running the same demo flows as each role, then spreading
+   * the timestamps over the last three days. Runs once per browser (state.historyV1).
+   */
+  async ensureHistory() {
+    if (this.st.historyV1) return;
+    this.st.historyV1 = true;
+    const keep = { staff: this.staff, ls: this.ls, listeners: this.staffL };
+    this.ls = null;
+    this.staffL = new Set();
+    const now = Date.now();
+    const windows: { start: number; end: number; target: number; span: number }[] = [];
+    const pause = () => new Promise((r) => setTimeout(r, 4));
+    const ep = async (hoursAgo: number, minutes: number, fn: () => Promise<void>) => {
+      await pause();
+      const start = Date.now();
+      try {
+        await fn();
+      } catch (e) {
+        console.warn('[demo history] step skipped:', e instanceof Error ? e.message : e);
+      }
+      windows.push({ start, end: Date.now(), target: now - hoursAgo * 3_600_000, span: minutes * 60_000 });
+    };
+    const as = async (phone: string, name?: string) => {
+      const u = await this.verifyOtp(`demo:${phone}`, OTP);
+      if (name && !u.displayName) u.displayName = name;
+      await pause();
+    };
+    const otp = (id: string) => this.st.orders.find((o) => o.orderId === id)?.otp;
+    const go = async (id: string, steps: OrderStatus[]) => {
+      for (const s of steps) {
+        await this.advanceOrder(id, s, s === 'DELIVERED' ? { otp: otp(id) } : undefined);
+        await pause();
+      }
+    };
+    const OWNER = '+919999999991', SALES = '+919999999992', SUNITA = '+919999999998', VIKRAM = '+919999999995', PRIYA = '+919999999994', NEHA = '+919876500006';
+    const RIDER = 'u-9995';
+    const PACK: OrderStatus[] = ['ACCEPTED', 'PICKING', 'PACKED'];
+    let priyaFar = 'a-home';
+    let nehaHome = '';
+    try {
+      await ep(76, 5, async () => {
+        await as(PRIYA);
+        priyaFar = (await this.saveAddress({ label: 'Office', line1: '14, Raja Park, near Gol Market', pincode: '302004', location: { lat: 26.8936, lng: 75.8268 } })).id;
+        await as(NEHA, 'Neha Gupta');
+        nehaHome = (await this.saveAddress({ label: 'Home', line1: 'B-22, Malviya Nagar, Sector 3', pincode: '302017', location: { lat: 26.8545, lng: 75.8139 } })).id;
+        this.st.profiles[this.me().uid]!.displayName ??= 'Neha Gupta';
+        await as(VIKRAM);
+        await this.setRiderShift(true, { lat: 26.9205, lng: 75.8251 });
+      });
+      await ep(72, 12, async () => {
+        await as(SALES);
+        await this.commitSale({ storeId: 'S1', channel: 'POS_WALKIN', items: [{ productId: 'kapur-50', qty: 2 }, { productId: 'dhoop-20', qty: 3 }], payment: { method: 'CASH' } });
+        await pause();
+        await this.commitSale({ storeId: 'S1', channel: 'POS_WALKIN', items: [{ productId: 'gond-250', qty: 1 }, { productId: 'kamarkas-100', qty: 1 }, { productId: 'panjiri-500', qty: 1 }], payment: { method: 'UPI_QR', providerRef: 'UPI-DEMO-1182' } });
+      });
+      await ep(70, 48, async () => {
+        await as(PRIYA);
+        const o = await this.placeOrder({ addressId: priyaFar, storeId: 'S1', items: [{ productId: 'gond-250', qty: 2 }, { productId: 'kamarkas-100', qty: 1 }], paymentMethod: 'COD' });
+        await as(SUNITA);
+        await this.advanceOrder(o.orderId, 'ACCEPTED');
+        await this.assignRider(o.orderId, RIDER);
+        await go(o.orderId, ['PICKING', 'PACKED']);
+        await as(VIKRAM);
+        await go(o.orderId, ['HANDED_TO_RIDER', 'OUT_FOR_DELIVERY', 'DELIVERED']);
+        await as(OWNER);
+        await this.receiveCodCash('S1', RIDER, o.grandTotal);
+      });
+      await ep(50, 52, async () => {
+        await as(NEHA);
+        const o = await this.placeOrder({ addressId: nehaHome, storeId: 'S2', items: [{ productId: 'atta-5kg', qty: 1 }, { productId: 'kaju-500', qty: 1 }], paymentMethod: 'UPI_INTENT', simulateOutcome: 'success' });
+        await as(OWNER);
+        await go(o.orderId, [...PACK, 'OUT_FOR_DELIVERY', 'DELIVERED']);
+      });
+      await ep(48, 6, async () => {
+        await as(SALES);
+        const f = '08AABCR5521K1Z';
+        await this.commitSale({ storeId: 'S1', channel: 'POS_WALKIN', items: [{ productId: 'kaju-500', qty: 2 }, { productId: 'kishmish-250', qty: 4 }, { productId: 'thali-set', qty: 1 }], payment: { method: 'UPI_QR', providerRef: 'UPI-DEMO-1190' }, buyer: { name: 'Hotel Raj Vilas Caterers', gstin: f + gstinCheckChar(f), address: 'MI Road, Jaipur 302001' } });
+      });
+      await ep(30, 12, async () => {
+        await as(PRIYA);
+        await this.topUpWallet(100_000, 'success');
+        const o = await this.placeOrder({ addressId: 'a-home', storeId: 'S1', items: [{ productId: 'mehndi-12', qty: 1 }, { productId: 'haldi-kit', qty: 1 }], paymentMethod: 'WALLET' });
+        await pause();
+        await this.cancelMyOrder(o.orderId, 'Ordered by mistake');
+      });
+      await ep(26, 42, async () => {
+        await as(NEHA);
+        const o = await this.placeOrder({ addressId: nehaHome, storeId: 'S2', items: [{ productId: 'haldi-kit', qty: 1 }, { productId: 'kapur-50', qty: 2 }], paymentMethod: 'COD' });
+        await as(OWNER);
+        await go(o.orderId, [...PACK, 'OUT_FOR_DELIVERY', 'DELIVERED']);
+      });
+      await ep(24, 2, async () => {
+        await as(OWNER);
+        await this.payRider(RIDER, 3000, 'UPI', 'UPI-PAY-2611');
+      });
+      await ep(6, 25, async () => {
+        await as(SALES);
+        await this.commitSale({ storeId: 'S1', channel: 'POS_WALKIN', items: [{ productId: 'atta-5kg', qty: 2 }, { productId: 'namak-1kg', qty: 2 }, { productId: 'sarson-1l', qty: 1 }], payment: { method: 'CASH' } });
+        await pause();
+        await this.commitSale({ storeId: 'S1', channel: 'POS_WALKIN', items: [{ productId: 'chai-250', qty: 1 }, { productId: 'kishmish-250', qty: 1 }], payment: { method: 'CARD', providerRef: 'CARD-DEMO-77' } });
+      });
+      await ep(3, 38, async () => {
+        await as(PRIYA);
+        const o = await this.placeOrder({ addressId: priyaFar, storeId: 'S1', items: [{ productId: 'badam-500', qty: 1 }, { productId: 'chai-250', qty: 1 }], paymentMethod: 'UPI_INTENT', simulateOutcome: 'success' });
+        await as(SUNITA);
+        await this.advanceOrder(o.orderId, 'ACCEPTED');
+        await this.assignRider(o.orderId, RIDER);
+        await go(o.orderId, ['PICKING', 'PACKED']);
+        await as(VIKRAM);
+        await go(o.orderId, ['HANDED_TO_RIDER', 'OUT_FOR_DELIVERY', 'DELIVERED']);
+      });
+      await ep(2, 4, async () => {
+        await as(SUNITA);
+        await this.submitHygieneCheck({ storeId: 'S1', kind: 'HYGIENE_DAILY', answers: HYGIENE_QUESTIONS.HYGIENE_DAILY.map((q) => ({ question: q, ok: true })), temperatureC: null });
+        await as(PRIYA);
+        const first = this.st.orders.find((x) => x.customerName === 'Priya Sharma' && x.status === 'DELIVERED');
+        await this.createSupportTicket({ category: 'DAMAGED_ITEM', subject: 'One gond packet seal was loose', orderId: first?.orderId ?? null, storeId: 'S1', transcript: [{ from: 'user', text: 'Gond ka ek packet ki seal khuli thi', at: Date.now() }, { from: 'bot', text: 'Sorry! Main isko store team ko bhej raha hoon.', at: Date.now() }] });
+      });
+      await ep(0.2, 8, async () => {
+        await as(PRIYA);
+        const o = await this.placeOrder({ addressId: priyaFar, storeId: 'S1', items: [{ productId: 'kaju-500', qty: 1 }, { productId: 'kishmish-250', qty: 2 }], paymentMethod: 'COD' });
+        await as(SUNITA);
+        await this.advanceOrder(o.orderId, 'ACCEPTED');
+        await this.assignRider(o.orderId, RIDER);
+        await go(o.orderId, ['PICKING', 'PACKED']);
+        await as(VIKRAM);
+        await go(o.orderId, ['HANDED_TO_RIDER', 'OUT_FOR_DELIVERY']);
+      });
+      await ep(0.12, 5, async () => {
+        await as(NEHA);
+        const o = await this.placeOrder({ addressId: nehaHome, storeId: 'S2', items: [{ productId: 'gond-250', qty: 1 }, { productId: 'namak-1kg', qty: 1 }], paymentMethod: 'UPI_INTENT', simulateOutcome: 'success' });
+        await as(OWNER);
+        await go(o.orderId, PACK);
+      });
+      await ep(0.05, 0, async () => {
+        await as(PRIYA);
+        await this.placeOrder({ addressId: 'a-home', storeId: 'S1', items: [{ productId: 'thali-set', qty: 1 }, { productId: 'dhoop-20', qty: 2 }], paymentMethod: 'UPI_INTENT', simulateOutcome: 'success' });
+      });
+      // Spread each step's real (millisecond) time over its episode's minutes, set in the past.
+      const shift = (v: number) => {
+        for (const w of windows) if (v >= w.start && v <= w.end) return Math.round(w.target + (w.end > w.start ? ((v - w.start) * w.span) / (w.end - w.start) : 0));
+        return v;
+      };
+      const walk = (o: unknown): void => {
+        if (Array.isArray(o)) o.forEach(walk);
+        else if (o && typeof o === 'object')
+          for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
+            if (typeof v === 'number' && (k === 'at' || k.endsWith('Ms'))) (o as Record<string, unknown>)[k] = shift(v);
+            else if (v && typeof v === 'object') walk(v);
+          }
+      };
+      walk(this.st);
+    } finally {
+      this.staff = keep.staff;
+      this.ls = keep.ls;
+      this.staffL = keep.listeners;
+      this.save();
     }
   }
   resetDemo() {
@@ -745,7 +917,7 @@ export class DemoDataClient implements DataClient {
   }
 
   /* -------------------------------------------------- customer: delivery */
-  private geo = new LocalGeoProvider({ maxDistanceMeters: 7000 });
+  private geo = new LocalGeoProvider({ maxDistanceMeters: JAIPUR_MAX_DELIVERY_METERS });
   private customer(): AppUser {
     const u = this.me();
     if (u.role !== 'customer') throw new DataError('Sign in with a customer account to order', 'PERMISSION_DENIED');

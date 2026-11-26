@@ -98,3 +98,18 @@ body {
     background: #fff;
   }
 }
+
+/* Map pins (components/map.tsx) */
+.px-pin-wrap { background: none; border: none; }
+.px-pin {
+  width: 30px; height: 30px; border-radius: 9999px; display: grid; place-items: center;
+  font-size: 16px; line-height: 1; background: #fff; border: 2px solid #2f6b3a;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.25);
+}
+.px-pin-rider { border-color: #b3261e; animation: px-pulse 1.6s ease-in-out infinite; }
+.px-pin-home { border-color: #8a5a00; }
+.px-pin-order { border-color: #8a5a00; }
+.px-pin-check { border-color: #1d4ed8; }
+@keyframes px-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgb(179 38 30 / 0.45); } 50% { box-shadow: 0 0 0 8px rgb(179 38 30 / 0); } }
+@media (prefers-reduced-motion: reduce) { .px-pin-rider { animation: none; } }
+.leaflet-container { font: inherit; }

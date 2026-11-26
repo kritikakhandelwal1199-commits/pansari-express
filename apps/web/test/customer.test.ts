@@ -11,7 +11,7 @@ describe('demo backend — online delivery', () => {
     const c = fresh();
     expect((await c.checkDelivery({ pincode: '302003' })).storeId).toBe('S1');
     expect((await c.checkDelivery({ pincode: '302017' })).storeId).toBe('S2');
-    expect((await c.checkDelivery({ pincode: '302021' })).reason).toBe('OUTSIDE_ZONES');
+    expect((await c.checkDelivery({ pincode: '305001' })).reason).toBe('OUTSIDE_ZONES');
     expect((await c.checkDelivery({ pincode: '110001' })).reason).toBe('UNKNOWN_PINCODE');
     const near = await c.checkDelivery({ pincode: '000000', location: { lat: 26.92, lng: 75.82 } });
     expect(near.serviceable).toBe(true);
