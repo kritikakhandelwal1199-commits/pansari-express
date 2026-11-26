@@ -424,7 +424,16 @@ export class DemoDataClient implements DataClient {
     const now = Date.now();
     const windows: { start: number; end: number; target: number; span: number }[] = [];
     const pause = () => new Promise((r) => setTimeout(r, 4));
-    const ep = async (hoursAgo: number, minutes: number, fn: () => Promise<void>) => {
+    // Shop hours in India time: `day(2, 11, 5)` = two days ago at 11:05 IST. Today's slots that are still
+    // in the future fall back to `fallbackMin` minutes ago, so nothing is ever dated ahead of now.
+    const IST = 330 * 60_000;
+    const todayStart = Math.floor((now + IST) / 86_400_000) * 86_400_000 - IST;
+    const day = (daysAgo: number, hh: number, mm: number, fallbackMin = 60) => {
+      const t = todayStart - daysAgo * 86_400_000 + (hh * 60 + mm) * 60_000;
+      return t < now - 5 * 60_000 ? t : now - fallbackMin * 60_000;
+    };
+    const ago = (minutes: number) => now - minutes * 60_000;
+    const ep = async (target: number, minutes: number, fn: () => Promise<void>) => {
       await pause();
       const start = Date.now();
       try {
@@ -432,7 +441,7 @@ export class DemoDataClient implements DataClient {
       } catch (e) {
         console.warn('[demo history] step skipped:', e instanceof Error ? e.message : e);
       }
-      windows.push({ start, end: Date.now(), target: now - hoursAgo * 3_600_000, span: minutes * 60_000 });
+      windows.push({ start, end: Date.now(), target, span: minutes * 60_000 });
     };
     const as = async (phone: string, name?: string) => {
       const u = await this.verifyOtp(`demo:${phone}`, OTP);
@@ -452,7 +461,7 @@ export class DemoDataClient implements DataClient {
     let priyaFar = 'a-home';
     let nehaHome = '';
     try {
-      await ep(76, 5, async () => {
+      await ep(day(3, 8, 10), 5, async () => {
         await as(PRIYA);
         priyaFar = (await this.saveAddress({ label: 'Office', line1: '14, Raja Park, near Gol Market', pincode: '302004', location: { lat: 26.8936, lng: 75.8268 } })).id;
         await as(NEHA, 'Neha Gupta');
@@ -461,13 +470,13 @@ export class DemoDataClient implements DataClient {
         await as(VIKRAM);
         await this.setRiderShift(true, { lat: 26.9205, lng: 75.8251 });
       });
-      await ep(72, 12, async () => {
+      await ep(day(3, 10, 15), 12, async () => {
         await as(SALES);
         await this.commitSale({ storeId: 'S1', channel: 'POS_WALKIN', items: [{ productId: 'kapur-50', qty: 2 }, { productId: 'dhoop-20', qty: 3 }], payment: { method: 'CASH' } });
         await pause();
         await this.commitSale({ storeId: 'S1', channel: 'POS_WALKIN', items: [{ productId: 'gond-250', qty: 1 }, { productId: 'kamarkas-100', qty: 1 }, { productId: 'panjiri-500', qty: 1 }], payment: { method: 'UPI_QR', providerRef: 'UPI-DEMO-1182' } });
       });
-      await ep(70, 48, async () => {
+      await ep(day(3, 12, 30), 48, async () => {
         await as(PRIYA);
         const o = await this.placeOrder({ addressId: priyaFar, storeId: 'S1', items: [{ productId: 'gond-250', qty: 2 }, { productId: 'kamarkas-100', qty: 1 }], paymentMethod: 'COD' });
         await as(SUNITA);
@@ -479,41 +488,41 @@ export class DemoDataClient implements DataClient {
         await as(OWNER);
         await this.receiveCodCash('S1', RIDER, o.grandTotal);
       });
-      await ep(50, 52, async () => {
+      await ep(day(2, 11, 5), 52, async () => {
         await as(NEHA);
         const o = await this.placeOrder({ addressId: nehaHome, storeId: 'S2', items: [{ productId: 'atta-5kg', qty: 1 }, { productId: 'kaju-500', qty: 1 }], paymentMethod: 'UPI_INTENT', simulateOutcome: 'success' });
         await as(OWNER);
         await go(o.orderId, [...PACK, 'OUT_FOR_DELIVERY', 'DELIVERED']);
       });
-      await ep(48, 6, async () => {
+      await ep(day(2, 16, 40), 6, async () => {
         await as(SALES);
         const f = '08AABCR5521K1Z';
         await this.commitSale({ storeId: 'S1', channel: 'POS_WALKIN', items: [{ productId: 'kaju-500', qty: 2 }, { productId: 'kishmish-250', qty: 4 }, { productId: 'thali-set', qty: 1 }], payment: { method: 'UPI_QR', providerRef: 'UPI-DEMO-1190' }, buyer: { name: 'Hotel Raj Vilas Caterers', gstin: f + gstinCheckChar(f), address: 'MI Road, Jaipur 302001' } });
       });
-      await ep(30, 12, async () => {
+      await ep(day(1, 10, 20), 12, async () => {
         await as(PRIYA);
         await this.topUpWallet(100_000, 'success');
         const o = await this.placeOrder({ addressId: 'a-home', storeId: 'S1', items: [{ productId: 'mehndi-12', qty: 1 }, { productId: 'haldi-kit', qty: 1 }], paymentMethod: 'WALLET' });
         await pause();
         await this.cancelMyOrder(o.orderId, 'Ordered by mistake');
       });
-      await ep(26, 42, async () => {
+      await ep(day(1, 18, 10), 42, async () => {
         await as(NEHA);
         const o = await this.placeOrder({ addressId: nehaHome, storeId: 'S2', items: [{ productId: 'haldi-kit', qty: 1 }, { productId: 'kapur-50', qty: 2 }], paymentMethod: 'COD' });
         await as(OWNER);
         await go(o.orderId, [...PACK, 'OUT_FOR_DELIVERY', 'DELIVERED']);
       });
-      await ep(24, 2, async () => {
+      await ep(day(1, 20, 30), 2, async () => {
         await as(OWNER);
         await this.payRider(RIDER, 3000, 'UPI', 'UPI-PAY-2611');
       });
-      await ep(6, 25, async () => {
+      await ep(day(0, 8, 30, 95), 25, async () => {
         await as(SALES);
         await this.commitSale({ storeId: 'S1', channel: 'POS_WALKIN', items: [{ productId: 'atta-5kg', qty: 2 }, { productId: 'namak-1kg', qty: 2 }, { productId: 'sarson-1l', qty: 1 }], payment: { method: 'CASH' } });
         await pause();
         await this.commitSale({ storeId: 'S1', channel: 'POS_WALKIN', items: [{ productId: 'chai-250', qty: 1 }, { productId: 'kishmish-250', qty: 1 }], payment: { method: 'CARD', providerRef: 'CARD-DEMO-77' } });
       });
-      await ep(3, 38, async () => {
+      await ep(day(0, 9, 20, 65), 38, async () => {
         await as(PRIYA);
         const o = await this.placeOrder({ addressId: priyaFar, storeId: 'S1', items: [{ productId: 'badam-500', qty: 1 }, { productId: 'chai-250', qty: 1 }], paymentMethod: 'UPI_INTENT', simulateOutcome: 'success' });
         await as(SUNITA);
@@ -523,14 +532,14 @@ export class DemoDataClient implements DataClient {
         await as(VIKRAM);
         await go(o.orderId, ['HANDED_TO_RIDER', 'OUT_FOR_DELIVERY', 'DELIVERED']);
       });
-      await ep(2, 4, async () => {
+      await ep(day(0, 8, 5, 25), 4, async () => {
         await as(SUNITA);
         await this.submitHygieneCheck({ storeId: 'S1', kind: 'HYGIENE_DAILY', answers: HYGIENE_QUESTIONS.HYGIENE_DAILY.map((q) => ({ question: q, ok: true })), temperatureC: null });
         await as(PRIYA);
         const first = this.st.orders.find((x) => x.customerName === 'Priya Sharma' && x.status === 'DELIVERED');
         await this.createSupportTicket({ category: 'DAMAGED_ITEM', subject: 'One gond packet seal was loose', orderId: first?.orderId ?? null, storeId: 'S1', transcript: [{ from: 'user', text: 'Gond ka ek packet ki seal khuli thi', at: Date.now() }, { from: 'bot', text: 'Sorry! Main isko store team ko bhej raha hoon.', at: Date.now() }] });
       });
-      await ep(0.2, 8, async () => {
+      await ep(ago(14), 8, async () => {
         await as(PRIYA);
         const o = await this.placeOrder({ addressId: priyaFar, storeId: 'S1', items: [{ productId: 'kaju-500', qty: 1 }, { productId: 'kishmish-250', qty: 2 }], paymentMethod: 'COD' });
         await as(SUNITA);
@@ -540,13 +549,13 @@ export class DemoDataClient implements DataClient {
         await as(VIKRAM);
         await go(o.orderId, ['HANDED_TO_RIDER', 'OUT_FOR_DELIVERY']);
       });
-      await ep(0.12, 5, async () => {
+      await ep(ago(8), 5, async () => {
         await as(NEHA);
         const o = await this.placeOrder({ addressId: nehaHome, storeId: 'S2', items: [{ productId: 'gond-250', qty: 1 }, { productId: 'namak-1kg', qty: 1 }], paymentMethod: 'UPI_INTENT', simulateOutcome: 'success' });
         await as(OWNER);
         await go(o.orderId, PACK);
       });
-      await ep(0.05, 0, async () => {
+      await ep(ago(3), 0, async () => {
         await as(PRIYA);
         await this.placeOrder({ addressId: 'a-home', storeId: 'S1', items: [{ productId: 'thali-set', qty: 1 }, { productId: 'dhoop-20', qty: 2 }], paymentMethod: 'UPI_INTENT', simulateOutcome: 'success' });
       });
