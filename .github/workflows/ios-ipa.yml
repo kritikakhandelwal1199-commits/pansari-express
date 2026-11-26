@@ -23,12 +23,12 @@ jobs:
       fail-fast: false
       matrix:
         flavor: [demo, live]
-    # Intel Mac: GitHub's Apple-silicon (arm64) Macs were short of capacity on 26 Nov 2026.
-    runs-on: macos-15-intel
+    # macOS 26 image: has Xcode 26.4+, which expo-modules-jsi (Swift 6.2) needs. The Intel image stops at 26.2.
+    runs-on: macos-26
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
-      - name: Use Xcode 26 (expo-modules-jsi needs Swift 6.2)
+      - name: Use the newest Xcode 26 (expo-modules-jsi needs 26.4+)
         run: |
           ls -d /Applications/Xcode*.app
           X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -v -i beta | sort -V | tail -1)
