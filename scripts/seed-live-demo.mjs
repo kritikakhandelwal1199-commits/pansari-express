@@ -10,7 +10,6 @@
  *    every stage (rider + store delivery, COD cash hand-in, rider payout, wallet refund), a support
  *    ticket, stock inward, hygiene checks and rider KYC uploads — so every number is genuine.
  *
- *   --remove-checker   remove the temporary checker admin (+919999900009) and its test number
  *   --remove-demo      remove ALL demo test numbers and demo roles (run before going live with real users)
  * Safe to re-run: the business flows run once (platform_config/demo_seed marks them done).
  */
@@ -39,7 +38,6 @@ const TEAM = [
   { key: 'neha', phone: '+919999900006', name: 'Neha Gupta', role: 'customer' },
   { key: 'arjun', phone: '+919999900007', name: 'Arjun Meena', role: 'rider', homeStoreId: 'S1', kyc: 'PENDING' },
   { key: 'staff2', phone: '+919999900008', name: 'Amit (counter, Malviya Nagar)', role: 'staff', vendorId: 'V1', storeIds: ['S2'] },
-  { key: 'checker', phone: '+919999900009', name: 'Checker (temporary admin)', role: 'super_admin' },
 ];
 
 initializeApp({ credential: applicationDefault(), projectId: PROJECT, storageBucket: BUCKET });
@@ -64,8 +62,8 @@ async function setTestNumbers(mutate) {
   return Object.keys(nums).length;
 }
 
-if (args.has('--remove-checker') || args.has('--remove-demo')) {
-  const drop = args.has('--remove-demo') ? TEAM : TEAM.filter((t) => t.key === 'checker');
+if (args.has('--remove-demo')) {
+  const drop = TEAM;
   await setTestNumbers((n) => drop.forEach((t) => delete n[t.phone]));
   for (const t of drop) {
     const u = await auth.getUserByPhoneNumber(t.phone).catch(() => null);
@@ -156,7 +154,7 @@ async function signIn(phone) {
   return b.idToken;
 }
 const tok = {};
-for (const t of TEAM) if (t.key !== 'checker') tok[t.key] = await signIn(t.phone);
+for (const t of TEAM) tok[t.key] = await signIn(t.phone);
 async function call(who, name, data) {
   const r = await fetch(`https://${REGION}-${PROJECT}.cloudfunctions.net/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok[who]}` }, body: JSON.stringify({ data }) });
   const j = await r.json().catch(() => ({}));
