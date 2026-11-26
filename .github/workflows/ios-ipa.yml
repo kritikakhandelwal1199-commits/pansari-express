@@ -1,0 +1,80 @@
+# Builds UNSIGNED iOS apps on GitHub's Mac runners (no Apple account needed) and publishes them on the
+# "ios-latest" release: pansari-demo.ipa (sample shop, OTP 123456) and pansari-express-live.ipa (live).
+# Install on an iPhone by sideloading (Sideloadly / AltStore) with your own Apple ID, which signs it.
+# A free Apple ID signature lasts 7 days; the Apple Developer Program removes that limit + enables TestFlight.
+name: iOS apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['apps/mobile/**', 'packages/client/**', '.github/workflows/ios-ipa.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-ipa
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [demo, live]
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/mobile/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w @pansari/shared && npm run build -w @pansari/adapters
+      - run: npm ci --no-audit --no-fund
+        working-directory: apps/mobile
+      - name: App settings (${{ matrix.flavor }})
+        working-directory: apps/mobile
+        run: grep -E '^[A-Z_]+=' build-env/${{ matrix.flavor }}.env >> "$GITHUB_ENV"
+      - name: Generate the iOS project
+        working-directory: apps/mobile
+        run: npx expo prebuild --platform ios --no-install --clean
+      - name: Install pods
+        working-directory: apps/mobile/ios
+        run: pod install || (pod repo update && pod install)
+      - name: Build the app (unsigned)
+        working-directory: apps/mobile/ios
+        env:
+          NODE_ENV: production
+          EXPO_NO_DOTENV: '1'
+        run: |
+          WS=$(ls -d *.xcworkspace | head -1); NAME="${WS%.xcworkspace}"
+          echo "Building $NAME"
+          set -o pipefail
+          xcodebuild -workspace "$WS" -scheme "$NAME" -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -n 60
+      - name: Package the .ipa
+        run: |
+          app=$(ls -d apps/mobile/ios/build/Build/Products/Release-iphoneos/*.app | head -1)
+          name=$([ "${{ matrix.flavor }}" = live ] && echo pansari-express-live.ipa || echo pansari-demo.ipa)
+          rm -rf Payload && mkdir Payload && cp -R "$app" Payload/
+          zip -qry "$name" Payload
+          ls -la "$name"
+          echo "IPA=$name" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA }}
+          path: ${{ env.IPA }}
+      - name: Publish on the ios-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view ios-latest >/dev/null 2>&1 || gh release create ios-latest --title "iPhone apps (latest build, unsigned)" --notes "Unsigned .ipa files for sideloading. On a Mac or Windows PC install Sideloadly (or AltStore), connect the iPhone, drop in the .ipa and sign with your Apple ID. On the iPhone: Settings > General > VPN & Device Management > trust your Apple ID, and turn on Developer Mode (Settings > Privacy & Security). Pansari Demo = sample shop, OTP 123456. Pansari Express = live shop." --latest=false
+          gh release upload ios-latest "$IPA" --clobber
